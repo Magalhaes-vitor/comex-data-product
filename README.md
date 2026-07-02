@@ -33,7 +33,7 @@ Nada neste checklist é assumido como pronto até estar marcado. Datas são por 
 - [x] Definição do escopo e das fontes de dados
 - [x] Diagrama de arquitetura-alvo
 - [x] Repositório público com esqueleto de pastas
-- [ ] Primeiro download funcional do PDF da APS (sem parsing ainda)
+- [x] Primeiro download funcional do PDF da APS (sem parsing ainda)
 
 ### Fase 2 — Parsing e ingestão (semanas 3-5)
 - [ ] Extração da tabela de "Movimentação de Cargas" via pdfplumber/camelot
