@@ -38,3 +38,23 @@ class MovimentacaoPortuaria(BaseModel):
         if val_limpo not in meses_validos:
             raise ValueError(f"Data Drift Detectado: Mês '{value}' fora do padrão esperado.")
         return val_limpo
+
+
+class CotacaoBacen(BaseModel):
+    """
+    Contrato de Dados para a camada Silver do Banco Central.
+    Garante que as cotações financeiras cheguem formatadas e sem nulos.
+    """
+    data_cotacao: str = Field(..., description="Data da cotação no formato YYYY-MM-DD")
+    cotacao_compra: float = Field(..., description="Valor de compra do Dólar (PTAX)")
+    cotacao_venda: float = Field(..., description="Valor de venda do Dólar (PTAX)")
+
+    @field_validator('data_cotacao', mode='before')
+    def extract_date(cls, value):
+        """
+        O Bacen retorna data e hora (ex: '2026-05-04 13:09:25.789').
+        Nós precisamos apenas da data (YYYY-MM-DD) para fazer o cruzamento futuro.
+        """
+        if isinstance(value, str) and ' ' in value:
+            return value.split(' ')[0]
+        return value
