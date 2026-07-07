@@ -1,6 +1,14 @@
 import os
+import sys
 import logging
 import pandas as pd
+
+# Adiciona a raiz do projeto ao path para permitir os imports da pasta src
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+from src.utils.date_rules import DateRules
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -58,5 +66,13 @@ class GoldBuilder:
         return True
 
 if __name__ == "__main__":
-    builder = GoldBuilder(ano="2026", mes="mai")
+    # 1. Consome a fonte única de verdade para regras de datas
+    periodo = DateRules.get_target_period()
+    ano_alvo = str(periodo["ano"])
+    mes_alvo = periodo["mes_str"]
+    
+    logger.info(f"Regra de Negócio: Alvo do Gold Builder definido para: {mes_alvo.upper()}/{ano_alvo}")
+    
+    # 2. Executa a construção da tabela Gold de forma dinâmica
+    builder = GoldBuilder(ano=ano_alvo, mes=mes_alvo)
     builder.build()
