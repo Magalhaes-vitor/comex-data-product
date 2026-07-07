@@ -11,11 +11,17 @@
 ## Navegação
 - [Histórico de Branches e Evolução](#historico-de-branches-e-evolucao)
 - [Status do projeto](#status-do-projeto)
+- [Visão geral](#visao-geral)
 - [Arquitetura Atual (Local)](#arquitetura-atual-local)
-- [Arquitetura Alvo (Cloud)](#arquitetura-alvo-cloud)
-- [Decisões de Design Aplicadas](#decisoes-de-design-aplicadas)
-- [Estrutura do Projeto](#estrutura-do-projeto)
+- [Arquitetura Alvo (Cloud)](#arquitetura-alvo-aws-cloud-native)
+- [Fontes de dados](#fontes-de-dados)
+- [Modelagem da camada Gold](#modelagem-da-camada-gold)
+- [Hipóteses de análise (a validar)](#hipoteses-de-analise-a-validar)
+- [Decisões de design aplicadas](#decisoes-de-design-aplicadas)
+- [Governança e uso responsável de dados públicos](#governanca-e-uso-responsavel-de-dados-publicos)
+- [Estrutura do projeto](#estrutura-do-projeto)
 - [Acompanhando o progresso](#acompanhando-o-progresso)
+- [Autor](#autor)
 
 ---
 
@@ -32,88 +38,207 @@ A construção deste pipeline seguiu uma ordem rigorosa de refatoração para ga
 
 ## Status do projeto
 
-### Fase 1: Ingestão e Modelagem (Concluída)
-- [x] Extração automatizada de PDFs do Porto de Santos (BeautifulSoup/Requests)
-- [x] Extração de dados da API Olinda (Banco Central)
-- [x] Modelagem de contratos de dados com Pydantic
-- [x] Parsing complexo de tabelas em PDF (pdfplumber)
+Datas são por número de semana do projeto, não calendário — evita prometer data e atrasar publicamente.
 
-### Fase 2: Robustez, Governança e Testes (Concluída)
-- [x] Implementar retry pattern (Tenacity) nos web scrapers e chamadas de API
-- [x] Criar testes unitários para validadores Pydantic
-- [x] Testes de integração com PDFs de meses anteriores como fixture local
+### Fase 1 — Fundação (Concluída)
+- [x] Definição do escopo e das fontes de dados
+- [x] Diagrama de arquitetura-alvo
+- [x] Repositório público com esqueleto de pastas
+- [x] Primeiro download funcional do PDF da APS
+
+### Fase 2 — Parsing, Ingestão e Qualidade (Concluída)
+- [x] Extração de dados da API Olinda (Banco Central)
+- [x] Extração da tabela de "Movimentação de Cargas" via pdfplumber
+- [x] Data contract em Pydantic para o schema esperado
+- [x] Testes unitários e de integração com PDFs de meses anteriores como fixture
 - [x] Centralizar regra de negócio temporal (`DateRules`)
 - [x] Implementar Zona de Quarentena com *Circuit Breakers* duplos (Linha e Volume)
 
-### Fase 3: Prontidão para Produção (Próximos Passos)
+### Fase 3 — Resiliência e Observabilidade (Em andamento)
+- [x] Implementar retry pattern (Tenacity) nos web scrapers e chamadas de API
 - [ ] Conectar módulo de notificações a um Webhook real do Slack
-- [ ] Garantir códigos de saída (sys.exit) corretos para monitoramento de contêineres
+- [ ] Garantir códigos de saída (`sys.exit`) corretos para monitoramento de contêineres
 
-### Fase 4: Cloud Migration e Observabilidade (Roadmap)
+### Fase 4 — Data Lake e Camadas (Roadmap)
 - [ ] Refatorar caminhos locais de disco para AWS S3 (boto3)
+- [ ] Silver: consolidação do armazenamento limpo no S3
+- [ ] Gold: cruzamento das fontes e modelo dimensional
+- [ ] Consulta via Amazon Athena
+
+### Fase 5 — Infraestrutura como código (Roadmap)
 - [ ] Containerizar os pipelines com Docker
-- [ ] Deploy serverless no AWS ECS / Fargate
+- [ ] Deploy serverless no AWS ECS / Fargate (com gatilho EventBridge)
+- [ ] Provisionamento via AWS SAM ou Terraform dos recursos validados
+
+### Fase 6 — Profundidade Analítica (Roadmap)
+- [ ] Reconciliação com Comex Stat (MDIC)
+- [ ] Contextualização sazonal com calendário CONAB
+- [ ] Comparativo de market share via ANTAQ
+
+### Fase 7 — Entrega (Roadmap)
+- [ ] Dashboard Power BI
+- [ ] Case study final e retrospectiva
 
 ---
 
-## Arquitetura Atual (Local)
+## Visão geral
 
-Atualmente, o projeto opera simulando um ambiente de Data Lake estruturado no sistema de arquivos local, dividido em quatro zonas semânticas rigorosas:
+Este projeto pretende resolver um problema real de Comércio Exterior (Comex): **reconciliar** o que o Porto de Santos registra fisicamente (toneladas movimentadas) com o que a alfândega (MDIC) registra financeiramente (valor FOB em USD), contextualizando esses números pela sazonalidade da safra (CONAB) e pela variação cambial (Bacen).
 
-* **Camada Bronze (Raw):** Armazena os dados brutos de forma imutável, exatamente como foram extraídos das fontes originais (PDFs da APS e JSONs do Bacen).
-* **Zona de Quarentena (DLQ - Dead Letter Queue):** Atua como o *Circuit Breaker* de qualidade do Data Lake. Dados que falham nos contratos de schema (Pydantic) são desviados para esta zona paralela e salvos em formato Parquet para auditoria forense, preservando o fluxo dos dados íntegros.
-* **Camada Silver (Cleansed):** Dados limpos, tipados e validados estruturalmente. Salvos no formato colunar Parquet para alta performance de leitura. A gravação nesta camada só ocorre se os *Circuit Breakers* aprovarem o lote.
-* **Camada Gold (Business):** Contém a regra de negócio consolidada. Modelada como uma Tabela Fato Única (OBT - *One Big Table*) que cruza as movimentações portuárias físicas (Toneladas) com os indicadores macroeconômicos (PTAX Média Mensal).
+Para isso, será construído um pipeline de engenharia de dados e RPA que extrai dados não-estruturados de PDFs públicos, enriquece com APIs governamentais e consolida os resultados em um data lake estruturado na AWS, orquestrado de forma serverless.
 
-## Arquitetura Alvo (Cloud)
-
-A infraestrutura final migrará a base lógica atual para serviços gerenciados da AWS:
-* **Storage:** AWS S3 (substituindo o sistema de arquivos local).
-* **Computação:** Contêineres Docker executados no AWS Fargate (Task acionada por EventBridge).
-* **Alertas:** Notificações disparadas para o Slack via Webhook.
+Todos os dados usados são reais e públicos — nenhum dado é simulado ou inventado.
 
 ---
 
-## Decisões de Design Aplicadas
+## Arquitetura alvo (AWS Cloud-Native)
 
-- **Idempotência Temporal Centralizada:** A regra que define "qual mês processar" foi isolada no módulo `DateRules`. Isso elimina falhas silenciosas onde diferentes etapas do pipeline poderiam inferir datas distintas.
-- **Circuit Breakers Duplos:** O pipeline implementa a filosofia de falhar fechado (*fail-closed*). A camada Silver só é alimentada se o lote passar por duas catracas simultâneas:
-  1. *Breaker de Linhas:* Aborta se o percentual de falhas no contrato Pydantic for estrutural.
-  2. *Breaker de Cobertura:* Aborta se o somatório extraído divergir do total oficial declarado pela fonte, garantindo integridade semântica além da sintática.
-- **Mapeamento Dinâmico de Matrizes em PDF:** Para lidar com mudanças na geometria dos relatórios governamentais, o parser evita índices colunares fixos (`hardcoded`). O código lê o cabeçalho das tabelas para inferir dinamicamente os eixos corretos antes da extração de dados físicos, garantindo resiliência contra inserção de novas colunas.
-- **Fail-Fast vs. Quarentena:** Erros de linha individuais não derrubam o mês inteiro (desde que respeitem os limites dos *breakers*), mas também não são descartados silenciosamente. Eles são registrados de forma imutável na Zona de Quarentena para posterior revisão da engenharia.
+*Esta é a arquitetura planejada. O status de implementação de cada componente está na seção [Status do projeto](#-status-do-projeto).*
+
+```mermaid
+graph TD
+    classDef source fill:#E8EAF6,stroke:#3949AB,stroke-width:2px;
+    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#FFFFFF;
+    classDef storage fill:#FFF3E0,stroke:#F57C00,stroke-width:2px;
+    classDef compute fill:#E0F7FA,stroke:#00838F,stroke-width:2px;
+    classDef monitor fill:#FFEBEE,stroke:#C62828,stroke-width:2px;
+    classDef bi fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px;
+
+    subgraph Extras["Fontes de dados externas (cadências diferentes)"]
+        APS[APS - Site oficial<br>PDF mensal]:::source
+        BACEN[Bacen - API<br>PTAX diária]:::source
+        MDIC[MDIC - Comex Stat<br>Valor declarado, mensal]:::source
+        CONAB[CONAB - Calendário<br>Safra agrícola]:::source
+        ANTAQ[ANTAQ - Painel estatístico<br>Arquivos batch anuais]:::source
+    end
+
+    EB(("EventBridge<br>Trigger mensal")):::aws --> Fargate
+
+    subgraph Compute["AWS Fargate (container Python)"]
+        direction TB
+        Orchestrator[Orchestrator<br>Tenacity + rate limiter]:::compute
+        Extract[Extract module<br>requests + pdfplumber]:::compute
+        Validation[Validação Pydantic<br>Data contracts]:::compute
+        Transform[Transform module<br>Limpeza e star schema]:::compute
+    end
+
+    subgraph Lake["Amazon S3 - Data Lake (Medallion)"]
+        Bronze[Bronze<br>Raw PDFs e JSONs]:::storage
+        Silver[Silver<br>Tabelas limpas por fonte]:::storage
+        Gold[Gold<br>Star schema / Parquet]:::storage
+    end
+
+    Athena[Amazon Athena<br>SQL serverless]:::aws --> BI[Power BI<br>Dashboard de reconciliação]:::bi
+
+    CW[CloudWatch<br>Logs e métricas]:::aws --> SNS[Amazon SNS]:::aws --> Slack[Slack Webhook<br>Alertas de falha/drift]:::monitor
+
+    APS --> Extract
+    BACEN --> Extract
+    MDIC --> Extract
+    CONAB --> Extract
+    ANTAQ --> Extract
+
+    Extract --> Orchestrator
+    Orchestrator --> Validation
+
+    Validation -- "Schema OK" --> Transform
+    Validation -- "Data drift" --> SNS
+
+    Transform -->|Salva raw| Bronze
+    Transform -->|Salva limpo| Silver
+    Transform -->|Salva modelado| Gold
+
+    Gold --> Athena
+    Transform -.->|Envia logs| CW
+```
+
+**Stack planejada:**
+- Orquestração: Amazon EventBridge (gatilho mensal)
+- Processamento: AWS Fargate
+- Data lake (S3 medallion): bronze, silver, gold
+- Consulta: Amazon Athena
+- Observabilidade: Amazon SNS + Slack
+- IaC: AWS SAM
 
 ---
 
-## Estrutura do Projeto
+## Fontes de dados
+
+| Fonte | O que fornece | Cadência | Formato de acesso |
+|---|---|---|---|
+| Autoridade Portuária de Santos (APS) | Volume físico (toneladas) por mercadoria | Mensal | PDF (Mensário Estatístico) |
+| Banco Central (Bacen) | PTAX (câmbio) | Diária | API pública (SGS/OData) — **não requer chave de autenticação** |
+| Comex Stat (MDIC) | Valor FOB (USD) declarado na alfândega | Mensal | Consulta/download estruturado |
+| CONAB | Calendário de safra agrícola | Sazonal | Boletins/planilhas |
+| ANTAQ | Estatísticas de movimentação de todos os portos | Anual | Painel estatístico (Qlik Sense) com download de arquivos compactados — **não é uma API REST simples**, exige um mini-ETL de arquivo batch |
+
+---
+
+## Modelagem planejada da camada Gold (Star Schema)
+
+*Ainda não implementada. Desenho alvo:*
+
+- **Tabela fato:** `fact_exports` — volume (toneladas), valor FOB (USD), taxa PTAX aplicada na data do embarque.
+- **Dimensões:**
+  - `dim_date` — dia útil, mês de safra (CONAB), trimestre.
+  - `dim_commodity` — produtos e categorias.
+  - `dim_port` — porto de origem e região.
+  - `dim_currency` — metadados da taxa de câmbio.
+
+Objetivo: responder perguntas como *"qual o volume médio de soja exportada por Santos nos meses de pico de safra, ajustado pela variação do dólar?"* com queries SQL simples no Athena.
+
+---
+
+## Hipóteses de análise (a validar)
+
+Estas são hipóteses que o pipeline vai testar quando houver dados suficientes — não conclusões já demonstradas.
+
+- **H1 — Sazonalidade domina o câmbio no curto prazo:** a expectativa, baseada na literatura de comércio exterior, é que o volume de exportação portuária seja tracionado principalmente pelo calendário de colheita, com o efeito cambial defasado e de menor magnitude. Isso será testado cruzando volume mensal com o calendário CONAB e a série de PTAX, e só será tratado como conclusão depois de série histórica suficiente (referência: 24+ meses).
+- **H2 — Divergência físico x financeiro:** espera-se que o volume físico (APS) e o valor declarado (Comex Stat) divirjam de forma explicável por preço de commodity e mix de produto, não por erro de dado. O painel de reconciliação vai quantificar essa diferença, não vai tratá-la como uma inconsistência a "corrigir".
+
+---
+
+## Decisões de design já tomadas
+
+> **PDF vs. portal tabular da APS**
+> A APS também disponibiliza dados tabulares além do PDF. A opção pelo PDF (pdfplumber/camelot) é deliberada: demonstra parsing resiliente a mudança de layout, competência mais próxima de cenários reais de Market Intelligence, onde fontes valiosas raramente têm API amigável.
+
+> **Resiliência via Pydantic**
+> A extração de PDF está sujeita a mudança de layout sem aviso. Pydantic funciona como contrato de dados: se a estrutura extraída não bater com o schema esperado, o dado é bloqueado antes da camada Silver e um alerta é disparado — em vez de deixar dado ruim propagar silenciosamente.
+
+---
+
+## Governança e uso responsável de dados públicos
+
+Todas as fontes usadas são públicas e institucionais (APS, Bacen, MDIC, CONAB, ANTAQ). A extração segue princípios de coleta responsável:
+- Respeito ao `robots.txt` e aos termos de uso de cada site.
+- Rate limiting explícito entre requisições (sem paralelismo agressivo).
+- Retries com backoff (Tenacity), não repetição imediata em caso de erro.
+- Nenhuma técnica de evasão de proteção anti-bot — a coleta é transparente e auditável, adequada ao caráter público das fontes.
+
+---
+
+## Estrutura planejada do projeto
 
 ```bash
 comex-data-product/
-├── data/
-│   ├── bronze/          # Dados brutos imutáveis (PDF, JSON)
-│   ├── quarantine/      # DLQ para auditoria de falhas de contrato (Parquet)
-│   ├── silver/          # Dados validados e estruturados (Parquet)
-│   └── gold/            # Modelo de negócio cruzado (Parquet)
 ├── src/
 │   ├── extractors/
 │   │   ├── aps_extractor.py
-│   │   └── bacen_extractor.py
+│   │   ├── bacen_extractor.py
+│   │   └── mdic_extractor.py
 │   ├── transformers/
 │   │   ├── cleaner.py
-│   │   ├── bacen_cleaner.py
 │   │   └── gold_builder.py
 │   ├── models/
-│   │   └── contracts.py
+│   │   ├── contracts.py
+│   │   └── validators.py
+│   ├── orchestrator.py
 │   └── utils/
-│       ├── date_rules.py    # Fonte única de regras temporais
-│       ├── quarantine.py    # Gerenciamento de DLQ e Circuit Breakers
-│       └── notifier.py
 ├── tests/
 │   ├── fixtures/
-│   ├── test_cleaners.py
-│   ├── test_contracts.py
-│   ├── test_date_rules.py
-│   └── test_extractors.py
+│   ├── test_extractors.py
+│   └── test_contracts.py
 ├── template.yaml
 ├── .env.example
 └── requirements.txt
