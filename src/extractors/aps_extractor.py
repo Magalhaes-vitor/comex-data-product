@@ -5,7 +5,6 @@ import time
 import logging
 import requests
 import urllib3
-from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -15,6 +14,7 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 from src.utils.notifier import Notifier
+from src.utils.date_rules import DateRules
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -34,30 +34,6 @@ class APSExtractor:
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         self.bronze_dir = os.path.join(project_root, "data", "bronze", "aps")
         os.makedirs(self.bronze_dir, exist_ok=True)
-        
-        # Mapeamento de meses
-        self.meses_pt = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-
-    def get_target_period(self):
-        hoje = datetime.now()
-        dia_atual = hoje.day
-        mes_atual = hoje.month
-        ano_atual = hoje.year
-
-        if dia_atual <= 15:
-            mes_alvo_num = mes_atual - 2
-        else:
-            mes_alvo_num = mes_atual - 1
-
-        ano_alvo = ano_atual
-        if mes_alvo_num <= 0:
-            mes_alvo_num += 12
-            ano_alvo -= 1
-
-        mes_alvo_str = self.meses_pt[mes_alvo_num - 1]
-        logger.info(f"Regra de Negócio: Dia {dia_atual}. Alvo da extração definido para: {mes_alvo_str.upper()}/{ano_alvo}")
-        
-        return str(ano_alvo), mes_alvo_str
 
     @retry(
         stop=stop_after_attempt(3),
@@ -123,7 +99,12 @@ class APSExtractor:
     def run(self):
         logger.info("=== Iniciando Pipeline de Extração: Porto de Santos ===")
         
-        ano_alvo, mes_alvo = self.get_target_period()
+        # Consome a fonte única de verdade para regras de datas
+        periodo = DateRules.get_target_period()
+        ano_alvo = periodo["ano"]
+        mes_alvo = periodo["mes_str"]
+        
+        logger.info(f"Regra de Negócio: Alvo da extração definido para: {mes_alvo.upper()}/{ano_alvo}")
         
         try:
             pdf_link = self.get_specific_pdf_link(ano_alvo, mes_alvo)

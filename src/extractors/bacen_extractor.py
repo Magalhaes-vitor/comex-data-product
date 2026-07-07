@@ -1,18 +1,19 @@
 import os
 import sys
-import time
-import logging
-import json
-import requests
-from datetime import datetime
-import calendar
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
+# Adiciona a raiz do projeto ao path para permitir os imports da pasta src
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
 from src.utils.notifier import Notifier
+from src.utils.date_rules import DateRules
+
+import time
+import logging
+import json
+import requests
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -33,36 +34,7 @@ class BacenExtractor:
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         self.bronze_dir = os.path.join(project_root, "data", "bronze", "bacen")
         os.makedirs(self.bronze_dir, exist_ok=True)
-        
-        self.meses_pt = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
-    def get_target_period_dates(self):
-        hoje = datetime.now()
-        dia_atual = hoje.day
-        mes_atual = hoje.month
-        ano_atual = hoje.year
-
-        if dia_atual <= 15:
-            mes_alvo_num = mes_atual - 2
-        else:
-            mes_alvo_num = mes_atual - 1
-
-        ano_alvo = ano_atual
-        if mes_alvo_num <= 0:
-            mes_alvo_num += 12
-            ano_alvo -= 1
-
-        _, ultimo_dia = calendar.monthrange(ano_alvo, mes_alvo_num)
-        
-        data_inicial = f"{mes_alvo_num:02d}-01-{ano_alvo}"
-        data_final = f"{mes_alvo_num:02d}-{ultimo_dia:02d}-{ano_alvo}"
-        mes_alvo_str = self.meses_pt[mes_alvo_num - 1]
-        
-        logger.info(f"Regra de Negócio: Intervalo cambial definido para: 01/{mes_alvo_num:02d}/{ano_alvo} até {ultimo_dia:02d}/{mes_alvo_num:02d}/{ano_alvo}")
-        return data_inicial, data_final, str(ano_alvo), mes_alvo_str
-
-    
-    # Tenta até 3 vezes. Espera 2s, depois 4s, depois desiste se continuar a falhar.
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -79,14 +51,13 @@ class BacenExtractor:
         
         logger.info(f"Solicitando dados de câmbio ao Bacen Olinda API...")
         
-        
         time.sleep(1)
         response = requests.get(self.api_base_url, headers=self.headers, params=params, timeout=15)
         
         if response.status_code != 200:
             logger.warning(f"Falha na API (Status {response.status_code}). O Tenacity tentará novamente se possível...")
         
-        response.raise_for_status() # Lança a exceção que engatilha o retry
+        response.raise_for_status() 
         
         data = response.json()
         if "value" in data and len(data["value"]) > 0:
@@ -115,7 +86,15 @@ class BacenExtractor:
 
     def run(self):
         logger.info("=== Iniciando Pipeline de Extração: Banco Central (PTAX) ===")
-        data_ini, data_fim, ano, mes = self.get_target_period_dates()
+        
+        # Consome a fonte única de verdade para regras de datas
+        periodo = DateRules.get_target_period()
+        data_ini = periodo["data_inicial"]
+        data_fim = periodo["data_final"]
+        ano = periodo["ano"]
+        mes = periodo["mes_str"]
+        
+        logger.info(f"Regra de Negócio: Intervalo cambial definido para: {data_ini} até {data_fim}")
         
         try:
             payload = self.fetch_ptax_data(data_ini, data_fim)
@@ -126,7 +105,7 @@ class BacenExtractor:
         except Exception as e:
             error_msg = f"Esgotadas todas as tentativas de extração. Erro final: {e}"
             logger.error(f"FALHA CRÍTICA: {error_msg}")
-                
+            
             Notifier.send_alert("Bacen Extractor (PTAX)", error_msg)
             
         logger.info("=== Processo Finalizado ===")
