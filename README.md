@@ -38,18 +38,18 @@ Nada neste checklist é assumido como pronto até estar marcado. Datas são por 
 ### Fase 2 — Parsing e ingestão (semanas 3-5)
 - [x] Extração da tabela de "Movimentação de Cargas" via pdfplumber/camelot
 - [x] Data contract em Pydantic para o schema esperado
-- [x] Testes unitários com PDFs de meses anteriores como fixture
+- [ ] Testes unitários com PDFs de meses anteriores como fixture
 - [x] Integração com a API do Bacen (PTAX)
 
 ### Fase 3 — Data lake e camadas (semanas 6-7)
-- [x] Bronze: armazenamento de PDFs e JSONs brutos no S3
+- [ ] Bronze: armazenamento de PDFs e JSONs brutos no S3
 - [x] Silver: dados limpos e validados, uma tabela por fonte
-- [x] Gold: cruzamento das fontes e modelo dimensional (star schema)
+- [ ] Gold: cruzamento das fontes e modelo dimensional (star schema)
 - [ ] Consulta via Amazon Athena
 
 ### Fase 4 — Resiliência e observabilidade (semana 8)
 - [x] Alertas de falha/drift via SNS + Slack
-- [x] Retries com Tenacity e rate limiting
+- [ ] Retries com Tenacity e rate limiting
 
 ### Fase 5 — Infraestrutura como código (semana 9)
 - [ ] Provisionamento via AWS SAM ou Terraform dos recursos já validados manualmente
