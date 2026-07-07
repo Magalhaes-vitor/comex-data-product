@@ -19,12 +19,9 @@ class MovimentacaoPortuaria(BaseModel):
         antes de tentar converter para float.
         """
         if isinstance(value, str):
-            # Remove espaços em branco
             value = value.strip()
-            # Se for um traço (comum em tabelas vazias), converte para 0.0
             if value == '-' or value == '':
                 return 0.0
-            # Remove o ponto de milhar e troca a vírgula decimal por ponto
             value = value.replace('.', '').replace(',', '.')
         
         try:
