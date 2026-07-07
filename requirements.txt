@@ -11,3 +11,6 @@ pandas>=2.1.0
 # --- Governança e Validação (Data Contracts) ---
 pydantic>=2.5.0
 pyarrow>=14.0.0
+
+# --- Testes e Qualidade ---
+pytest>=7.4.0
