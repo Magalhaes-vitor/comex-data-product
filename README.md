@@ -9,10 +9,9 @@
 ---
 
 ## Navegação
-- [Histórico de Branches e Evolução](#historico-de-branches-e-evolucao)
+- [Guia de Branches](#guia-de-branches)
 - [Status do projeto](#status-do-projeto)
 - [Visão geral](#visao-geral)
-- [Arquitetura Atual (Local)](#arquitetura-atual-local)
 - [Arquitetura Alvo (Cloud)](#arquitetura-alvo-aws-cloud-native)
 - [Fontes de dados](#fontes-de-dados)
 - [Modelagem da camada Gold](#modelagem-da-camada-gold)
@@ -25,14 +24,19 @@
 
 ---
 
-## Histórico de Branches e Evolução
+## Guia de Branches
 
-A construção deste pipeline seguiu uma ordem rigorosa de refatoração para garantir a integridade dos dados antes da migração para a nuvem. A evolução pode ser rastreada através do seguinte fluxo de branches:
+Cada branch representa uma etapa isolada de construção — este é o guia de alterações do projeto. A ordem abaixo é cronológica (da mais antiga para a mais recente). Descrição inferida a partir do nome da branch e do histórico de decisões do projeto; ajuste se o conteúdo real divergir.
 
-1. **`main` (Base inicial):** Setup de web scrapers, parsers de PDF (pdfplumber) e consumo de API (Bacen), com validação básica via Pydantic.
-2. **`fix/cleaners-and-fixtures`:** Implementação de testes automatizados (pytest) utilizando PDFs reais de meses anteriores como *fixtures*. Refatoração da extração de PDFs para o método geométrico (`vertical_strategy: "lines"`), substituindo índices fixos frágeis por mapeamento dinâmico de colunas.
-3. **`fix/core-daterules`:** Resolução do P0 (Risco de dessincronização temporal). Criação do módulo centralizado `DateRules` para garantir que extratores, limpadores e builders processem estritamente o mesmo período, garantindo a idempotência do pipeline.
-4. **`feat/quarantine-circuit-breakers`:** Implementação da Zona de Quarentena (DLQ) para segregar dados corrompidos sem interromper o pipeline. Criação de duplo *Circuit Breaker*: Breaker de Linhas (protege contra falhas generalizadas) e Breaker de Volume/Cobertura (valida a tonelagem extraída contra o total oficial impresso no documento).
+| Branch | Commits | Última atualização | O que introduziu |
+|---|---|---|---|
+| `feat/aps-parser` | 15 | há 2 dias | Extração da tabela "Movimentação de Cargas" do PDF da APS via pdfplumber, incluindo a correção de `vertical_strategy` (`"text"` → `"lines"`) que resolveu a fragilidade de colunas mescladas em meses com números mais largos. |
+| `feat/bacen-parser` | 14 | há 2 dias | Integração com a API Olinda do Banco Central (PTAX), extração e validação da série de câmbio. |
+| `feat/gold-layer` | 13 | há 2 dias | Cruzamento das fontes (APS + Bacen) e construção da tabela fato na camada Gold. **Status de merge a confirmar** — o checklist abaixo trata a camada Gold como não iniciada; se esta branch já estiver integrada à `main`, o checklist precisa ser corrigido. |
+| `feat/unit-tests` | 11 | há 2 dias | Suíte de testes com PDFs reais de meses anteriores como fixtures, cobrindo o parsing ponta a ponta. |
+| `feat/observability` | 10 | há 2 dias | `DateRules` centralizado (regra de defasagem de período) e Zona de Quarentena com os dois circuit breakers (linha e volume/cobertura). |
+| `fix/cleaners-and-fixtures` | 8 | ontem | Ajustes no `cleaner.py` decorrentes da migração de estratégia de extração — mapeamento de colunas revisado após a mudança para `"lines"`. |
+| `feat/observability-slack` | 1 | há 16 horas | Conexão do módulo de notificações a um webhook real do Slack. **Conteúdo ainda não revisado neste README** — pendente confirmação de que a URL do webhook vem de variável de ambiente, não hardcoded. |
 
 ---
 
@@ -48,7 +52,7 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 
 ### Fase 2 — Parsing, Ingestão e Qualidade (Concluída)
 - [x] Extração de dados da API Olinda (Banco Central)
-- [x] Extração da tabela de "Movimentação de Cargas" via pdfplumber
+- [x] Extração da tabela de "Movimentação de Cargas" via pdfplumber (mapeamento geométrico por linhas de grade)
 - [x] Data contract em Pydantic para o schema esperado
 - [x] Testes unitários e de integração com PDFs de meses anteriores como fixture
 - [x] Centralizar regra de negócio temporal (`DateRules`)
@@ -56,19 +60,19 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 
 ### Fase 3 — Resiliência e Observabilidade (Em andamento)
 - [x] Implementar retry pattern (Tenacity) nos web scrapers e chamadas de API
-- [x] Conectar módulo de notificações a um Webhook real do Slack
-- [x] Garantir códigos de saída (`sys.exit`) corretos para monitoramento de contêineres
+- [x] Conectar módulo de notificações a um Webhook real do Slack *(verificação de código pendente — confirmar ausência de URL hardcoded)*
+- [x] Garantir códigos de saída (`sys.exit`) corretos para monitoramento de contêineres *(verificação de código pendente — confirmar que os circuit breakers de quarentena também propagam exit code, não só falhas de rede)*
 
 ### Fase 4 — Data Lake e Camadas (Roadmap)
 - [ ] Refatorar caminhos locais de disco para AWS S3 (boto3)
 - [ ] Silver: consolidação do armazenamento limpo no S3
-- [ ] Gold: cruzamento das fontes e modelo dimensional
+- [ ] Gold: cruzamento das fontes e modelo dimensional *(confirmar se `feat/gold-layer` já cobre parte disso)*
 - [ ] Consulta via Amazon Athena
 
 ### Fase 5 — Infraestrutura como código (Roadmap)
 - [ ] Containerizar os pipelines com Docker
 - [ ] Deploy serverless no AWS ECS / Fargate (com gatilho EventBridge)
-- [ ] Provisionamento via AWS SAM ou Terraform dos recursos validados
+- [ ] Provisionamento via AWS SAM dos recursos validados
 
 ### Fase 6 — Profundidade Analítica (Roadmap)
 - [ ] Reconciliação com Comex Stat (MDIC)
@@ -93,7 +97,7 @@ Todos os dados usados são reais e públicos — nenhum dado é simulado ou inve
 
 ## Arquitetura alvo (AWS Cloud-Native)
 
-*Esta é a arquitetura planejada. O status de implementação de cada componente está na seção [Status do projeto](#-status-do-projeto).*
+*Esta é a arquitetura planejada. O status de implementação de cada componente está na seção [Status do projeto](#status-do-projeto).*
 
 ```mermaid
 graph TD
@@ -153,12 +157,12 @@ graph TD
 ```
 
 **Stack planejada:**
-- Orquestração: Amazon EventBridge (gatilho mensal)
-- Processamento: AWS Fargate
+- Orquestração: Amazon EventBridge (gatilho mensal, ECS RunTask direto — sem Lambda)
+- Processamento: AWS Fargate, em subnet pública sem NAT Gateway
 - Data lake (S3 medallion): bronze, silver, gold
 - Consulta: Amazon Athena
 - Observabilidade: Amazon SNS + Slack
-- IaC: AWS SAM
+- IaC: AWS SAM (Terraform descartado por complexidade de configuração desproporcional ao escopo)
 
 ---
 
@@ -174,12 +178,12 @@ graph TD
 
 ---
 
-## Modelagem planejada da camada Gold (Star Schema)
+## Modelagem da camada Gold
 
-*Ainda não implementada. Desenho alvo:*
+*Cruzamento implementado localmente (branch `feat/gold-layer`); star schema completo (dimensões separadas) ainda não implementado — hoje é uma tabela fato única enriquecida. Desenho alvo:*
 
-- **Tabela fato:** `fact_exports` — volume (toneladas), valor FOB (USD), taxa PTAX aplicada na data do embarque.
-- **Dimensões:**
+- **Tabela fato:** `fact_exports` — volume (toneladas), valor FOB (USD), taxa PTAX aplicada no período.
+- **Dimensões (roadmap):**
   - `dim_date` — dia útil, mês de safra (CONAB), trimestre.
   - `dim_commodity` — produtos e categorias.
   - `dim_port` — porto de origem e região.
@@ -198,13 +202,22 @@ Estas são hipóteses que o pipeline vai testar quando houver dados suficientes 
 
 ---
 
-## Decisões de design já tomadas
+## Decisões de design aplicadas
 
 > **PDF vs. portal tabular da APS**
-> A APS também disponibiliza dados tabulares além do PDF. A opção pelo PDF (pdfplumber/camelot) é deliberada: demonstra parsing resiliente a mudança de layout, competência mais próxima de cenários reais de Market Intelligence, onde fontes valiosas raramente têm API amigável.
+> A APS também disponibiliza dados tabulares além do PDF. A opção pelo PDF (pdfplumber) é deliberada: demonstra parsing resiliente a mudança de layout, competência mais próxima de cenários reais de Market Intelligence, onde fontes valiosas raramente têm API amigável.
+
+> **Extração geométrica em vez de posicional**
+> A extração inicial usava `vertical_strategy: "text"`, que infere colunas pela posição horizontal do texto. Essa abordagem se mostrou frágil: números mais largos (típicos de totais acumulados ao longo do ano) deslocam a inferência de coluna e corrompem linhas inteiras — inclusive a linha `TOTAL GERAL`, usada pelo Circuit Breaker de Volume. A correção migrou para `vertical_strategy: "lines"`, que usa as linhas de grade reais do PDF, eliminando a dependência da largura do número.
 
 > **Resiliência via Pydantic**
 > A extração de PDF está sujeita a mudança de layout sem aviso. Pydantic funciona como contrato de dados: se a estrutura extraída não bater com o schema esperado, o dado é bloqueado antes da camada Silver e um alerta é disparado — em vez de deixar dado ruim propagar silenciosamente.
+
+> **Quarentena com Circuit Breaker duplo**
+> Um único breaker por contagem de linhas rejeitadas não protege contra a perda de poucas linhas de alto peso (ex: Soja, Açúcar). Por isso, a validação combina dois critérios independentes — taxa de linhas rejeitadas e taxa de cobertura de volume (toneladas validadas vs. total oficial do documento) — e bloqueia a ingestão se qualquer um dos dois for violado. Ausência do total oficial no documento é tratada como falha estrutural (fail-closed), não como validação ignorada.
+
+> **AWS SAM em vez de Terraform**
+> Terraform foi descartado para este escopo por complexidade de configuração desproporcional ao tamanho do projeto (solo, poucos recursos). SAM cobre o necessário com menos sobrecarga operacional.
 
 ---
 
@@ -218,27 +231,34 @@ Todas as fontes usadas são públicas e institucionais (APS, Bacen, MDIC, CONAB,
 
 ---
 
-## Estrutura planejada do projeto
+## Estrutura do projeto
 
 ```bash
 comex-data-product/
 ├── src/
 │   ├── extractors/
 │   │   ├── aps_extractor.py
-│   │   ├── bacen_extractor.py
-│   │   └── mdic_extractor.py
+│   │   └── bacen_extractor.py
 │   ├── transformers/
-│   │   ├── cleaner.py
+│   │   ├── cleaner.py          # APS
+│   │   ├── bacen_cleaner.py
 │   │   └── gold_builder.py
 │   ├── models/
-│   │   ├── contracts.py
-│   │   └── validators.py
-│   ├── orchestrator.py
-│   └── utils/
+│   │   └── contracts.py
+│   ├── utils/
+│   │   ├── date_rules.py
+│   │   ├── quarantine.py
+│   │   └── notifier.py
 ├── tests/
-│   ├── fixtures/
+│   ├── fixtures/aps/
 │   ├── test_extractors.py
-│   └── test_contracts.py
+│   ├── test_contracts.py
+│   └── test_cleaners.py
+├── data/
+│   ├── bronze/
+│   ├── silver/
+│   ├── gold/
+│   └── quarantine/              # zona irmã, não subpasta da silver
 ├── template.yaml
 ├── .env.example
 └── requirements.txt
