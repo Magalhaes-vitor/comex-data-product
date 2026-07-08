@@ -5,6 +5,8 @@ import logging
 import pandas as pd
 from datetime import datetime
 
+from src.utils.notifier import notifier
+
 logger = logging.getLogger(__name__)
 
 class QuarantineManager:
@@ -61,27 +63,35 @@ class QuarantineManager:
         self.rejeitos.append(rejeito)
 
     def evaluate_line_breaker(self, total_linhas_tentadas: int, threshold_percentual: float = 5.0) -> bool:
-        """
-        Breaker 1: Protege contra falhas generalizadas de layout (muitas linhas falhando).
-        """
         if total_linhas_tentadas == 0:
+            logger.warning("[Breaker Linhas] Nenhuma linha foi processada. Validação ignorada.")
             return True
             
-        taxa_erro = (len(self.rejeitos) / total_linhas_tentadas) * 100
-        logger.info(f"[Breaker Linhas] {len(self.rejeitos)} rejeições em {total_linhas_tentadas} linhas ({taxa_erro:.2f}% de falha).")
+        total_rejeicoes = len(self.rejeitados)
+        taxa_falha = (total_rejeicoes / total_linhas_tentadas) * 100
         
-        if taxa_erro > threshold_percentual:
-            logger.error(f"CIRCUIT BREAKER ACIONADO (Linhas)! Taxa de erro de {taxa_erro:.2f}% superou o limite de {threshold_percentual}%.")
+        logger.info(f"[Breaker Linhas] {total_rejeicoes} rejeições em {total_linhas_tentadas} linhas ({taxa_falha:.2f}% de falha).")
+        
+        if taxa_falha > threshold_percentual:
+            msg_slack = (
+                f"🚨 *CIRCUIT BREAKER ACIONADO ({self.pipeline_name.upper()})*\n"
+                f"Taxa de falha de linhas: *{taxa_falha:.2f}%* (Limite: {threshold_percentual}%).\n"
+                f"O processamento da camada Silver foi abortado."
+            )
+            notifier.send_message(msg_slack, "error")
+            logger.error(f"CIRCUIT BREAKER ACIONADO (Linhas)! Taxa de falha de {taxa_falha:.2f}% superou o limite aceitável.")
             return False
             
         return True
 
     def evaluate_coverage_breaker(self, volume_validado: float, volume_total_oficial: float, threshold_percentual: float = 5.0) -> bool:
-        """
-        Breaker 2: Protege contra perda de linhas de alto peso (Soja, Açúcar).
-        Compara as toneladas capturadas com o total oficial impresso no PDF.
-        """
         if volume_total_oficial <= 0:
+            msg_slack = (
+                f"🚨 *FALHA ESTRUTURAL ({self.pipeline_name.upper()})*\n"
+                f"O valor de 'TOTAL GERAL' não foi localizado no documento.\n"
+                f"A validação de cobertura é impossível. Ingestão bloqueada."
+            )
+            notifier.send_message(msg_slack, "error")
             logger.error("[Breaker Volume] TOTAL GERAL não localizado no PDF — tratando como falha estrutural e bloqueando a ingestão.")
             return False
             
@@ -91,6 +101,12 @@ class QuarantineManager:
         logger.info(f"[Breaker Volume] Cobertura: {volume_validado:,.2f} ton extraídas vs {volume_total_oficial:,.2f} ton declaradas. (Discrepância de {taxa_perda:.2f}%).")
         
         if taxa_perda > threshold_percentual:
+            msg_slack = (
+                f"🚨 *CIRCUIT BREAKER ACIONADO ({self.pipeline_name.upper()})*\n"
+                f"Perda de volume: *{taxa_perda:.2f}%* (Limite: {threshold_percentual}%).\n"
+                f"Extraído: {volume_validado:,.2f} ton / Oficial: {volume_total_oficial:,.2f} ton."
+            )
+            notifier.send_message(msg_slack, "error")
             logger.error(f"CIRCUIT BREAKER ACIONADO (Volume)! Perda de {taxa_perda:.2f}% superou o limite aceitável de {threshold_percentual}%.")
             return False
             

@@ -56,8 +56,8 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 
 ### Fase 3 — Resiliência e Observabilidade (Em andamento)
 - [x] Implementar retry pattern (Tenacity) nos web scrapers e chamadas de API
-- [ ] Conectar módulo de notificações a um Webhook real do Slack
-- [ ] Garantir códigos de saída (`sys.exit`) corretos para monitoramento de contêineres
+- [x] Conectar módulo de notificações a um Webhook real do Slack
+- [x] Garantir códigos de saída (`sys.exit`) corretos para monitoramento de contêineres
 
 ### Fase 4 — Data Lake e Camadas (Roadmap)
 - [ ] Refatorar caminhos locais de disco para AWS S3 (boto3)
