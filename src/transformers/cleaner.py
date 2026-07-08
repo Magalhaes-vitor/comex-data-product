@@ -1,15 +1,16 @@
 import os
+import sys
 import glob
 import logging
 import pdfplumber
 import pandas as pd
 from pydantic import ValidationError
 
-import sys
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
+from src.utils.notifier import notifier
 from src.models.contracts import MovimentacaoPortuaria
 from src.utils.date_rules import DateRules
 from src.utils.quarantine import QuarantineManager
@@ -201,7 +202,10 @@ if __name__ == "__main__":
     arquivos_alvo = glob.glob(padrao_busca)
     
     if not arquivos_alvo:
-        logger.error(f"Nenhum arquivo PDF encontrado na camada Bronze para ({mes_alvo}/{ano_alvo}).")
+        msg = f"Nenhum arquivo PDF encontrado na camada Bronze para ({mes_alvo}/{ano_alvo})."
+        logger.error(msg)
+        notifier.send_message(f"⚠️ *Pipeline APS Abortado*\n{msg}", "warning")
+        sys.exit(1) # Informa ao Docker/AWS que falhou
     else:
         arquivo_alvo = max(arquivos_alvo, key=os.path.getctime)
         nome_arquivo = os.path.basename(arquivo_alvo)
@@ -209,4 +213,11 @@ if __name__ == "__main__":
         logger.info(f"Regra de Negócio: Arquivo alvo validado para {mes_alvo.upper()}/{ano_alvo}: {nome_arquivo}")
         
         cleaner = APSCleaner(file_name=nome_arquivo, ano=ano_alvo, mes=mes_alvo)
-        cleaner.extract_and_clean()
+        sucesso = cleaner.extract_and_clean()
+        
+        if sucesso:
+            notifier.send_message(f"✅ *Pipeline APS Concluído ({mes_alvo.upper()}/{ano_alvo})*\nCamada Silver atualizada com sucesso!", "success")
+            sys.exit(0) # Informa ao Docker/AWS que foi sucesso absoluto
+        else:
+            notifier.send_message(f"❌ *Falha no Pipeline APS ({mes_alvo.upper()}/{ano_alvo})*\nProcessamento interrompido. Verifique os logs e a Quarentena.", "error")
+            sys.exit(1) # Informa ao Docker/AWS que falhou

@@ -13,6 +13,7 @@ if project_root not in sys.path:
 from src.models.contracts import CotacaoBacen
 from src.utils.date_rules import DateRules
 from src.utils.quarantine import QuarantineManager
+from src.utils.notifier import notifier
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -27,10 +28,10 @@ class BacenCleaner:
         os.makedirs(self.silver_dir, exist_ok=True)
 
     def extract_and_clean(self):
-        logger.info(f"Iniciando leitura e validação do JSON: {self.bronze_path}")
+        logger.info(f"A iniciar leitura e validação do JSON: {self.bronze_path}")
         
         if not os.path.exists(self.bronze_path):
-            logger.error("Arquivo da camada Bronze não encontrado.")
+            logger.error("Ficheiro da camada Bronze não encontrado.")
             return False
 
         with open(self.bronze_path, 'r', encoding='utf-8') as f:
@@ -38,10 +39,9 @@ class BacenCleaner:
 
         cotacoes = data.get("value", [])
         if not cotacoes:
-            logger.error("Nenhum dado de cotação encontrado no arquivo JSON.")
+            logger.error("Nenhum dado de cotação encontrado no ficheiro JSON.")
             return False
 
-        # 1. Instancia a Quarentena para a API do Bacen
         quarantine = QuarantineManager(
             pipeline_name="bacen",
             ano=self.ano,
@@ -55,7 +55,6 @@ class BacenCleaner:
         for item in cotacoes:
             total_linhas_tentadas += 1
             try:
-                # Valida e limpa os dados usando o nosso Contrato
                 obj_valido = CotacaoBacen(
                     data_cotacao=item.get("dataHoraCotacao"),
                     cotacao_compra=item.get("cotacaoCompra"),
@@ -64,7 +63,6 @@ class BacenCleaner:
                 linhas_validadas.append(obj_valido.model_dump())
                 
             except ValidationError as e:
-                # Extrai o campo e o valor que falharam diretamente do JSON
                 campo_erro = str(e.errors()[0]['loc'][0]) if e.errors() else "desconhecido"
                 valor_erro = item.get(campo_erro, "") if campo_erro != "desconhecido" else ""
                 
@@ -79,19 +77,14 @@ class BacenCleaner:
                     mercadoria_tentativa="Dolar/PTAX"
                 )
 
-        # 2. Finalizou a leitura, salva a Quarentena (se houver rejeitos)
         quarantine.save_rejections()
 
-        # 3. Avalia o Guardião (Breaker de Linhas)
-        # Um mês útil tem cerca de 21 dias. Uma linha de erro representa ~4.7% de falha.
-        # Mantemos o threshold de 5.0%, o que significa que ele tolera no máximo 1 dia de cotação corrompido.
         linha_ok = quarantine.evaluate_line_breaker(total_linhas_tentadas, threshold_percentual=5.0)
 
         if not linha_ok:
             logger.error("Processamento abortado! Dados cambiais não confiáveis. A camada Silver não será atualizada.")
             return False
 
-        # 4. Liberação para a Silver
         if linhas_validadas:
             df = pd.DataFrame(linhas_validadas)
             df['data_cotacao'] = pd.to_datetime(df['data_cotacao'])
@@ -100,7 +93,7 @@ class BacenCleaner:
             df.to_parquet(silver_file, index=False)
             
             logger.info(f"Sucesso! {len(df)} dias de cotação aprovados.")
-            logger.info(f"Arquivo Silver gerado em: {silver_file}")
+            logger.info(f"Ficheiro Silver gerado em: {silver_file}")
             return True
             
         logger.warning("Nenhum dado válido extraído para a camada Silver do Bacen.")
@@ -114,4 +107,11 @@ if __name__ == "__main__":
     logger.info(f"Regra de Negócio: Alvo da limpeza definido para: {mes_alvo.upper()}/{ano_alvo}")
     
     cleaner = BacenCleaner(ano=ano_alvo, mes=mes_alvo)
-    cleaner.extract_and_clean()
+    sucesso = cleaner.extract_and_clean()
+    
+    if sucesso:
+        notifier.send_message(f"✅ *Pipeline Bacen Concluído ({mes_alvo.upper()}/{ano_alvo})*\nCamada Silver atualizada com as cotações PTAX!", "success")
+        sys.exit(0)
+    else:
+        notifier.send_message(f"❌ *Falha no Pipeline Bacen ({mes_alvo.upper()}/{ano_alvo})*\nProcessamento interrompido. Verifique os logs.", "error")
+        sys.exit(1)
