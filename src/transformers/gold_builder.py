@@ -58,16 +58,14 @@ class GoldBuilder:
         df_gold_aps['ptax_media_compra'] = round(ptax_media_compra, 4)
         df_gold_aps['ptax_media_venda'] = round(ptax_media_venda, 4)
         df_gold_aps['fonte_cambio'] = 'Bacen API - Média Mensal'
-        sucesso_aps = connector.save_parquet(df_gold_aps, "gold", "market_intelligence", self.gold_aps_filename)
-
+        sucesso_aps = connector.save_parquet(df_gold_aps, "gold", "market_intelligence_aps", self.gold_aps_filename)
         # 4. Construção da Tabela Fato 2: Balança Comercial (MDIC)
         logger.info("Enriquecendo dados da Balança Comercial (MDIC)...")
         df_gold_mdic = df_mdic.copy()
         df_gold_mdic['ptax_media_venda'] = round(ptax_media_venda, 4)
         df_gold_mdic['valor_fob_brl'] = round(df_gold_mdic['valor_fob_usd'] * ptax_media_venda, 2)
         df_gold_mdic['fonte_cambio'] = 'Bacen API - Média Mensal'
-        sucesso_mdic = connector.save_parquet(df_gold_mdic, "gold", "market_intelligence", self.gold_mdic_filename)
-
+        sucesso_mdic = connector.save_parquet(df_gold_mdic, "gold", "market_intelligence_mdic", self.gold_mdic_filename)
         # 5. Construção da Tabela Fato 3: Origem Agrícola (APS + CONAB)
         logger.info("Construindo Inteligência Geográfica (APS + CONAB)...")
         
@@ -99,8 +97,7 @@ class GoldBuilder:
         # Remove colunas redundantes do merge
         df_gold_agro = df_gold_agro.drop(columns=['ano_referencia', 'mes_referencia', 'cultura'])
 
-        sucesso_agro = connector.save_parquet(df_gold_agro, "gold", "market_intelligence", self.gold_agro_filename)
-
+        sucesso_agro = connector.save_parquet(df_gold_agro, "gold", "market_intelligence_agro", self.gold_agro_filename)
         if sucesso_aps and sucesso_mdic and sucesso_agro:
             logger.info(f"Sucesso! Tabela Fato APS: {len(df_gold_aps)} registros.")
             logger.info(f"Sucesso! Tabela Fato MDIC: {len(df_gold_mdic)} registros.")

@@ -102,7 +102,7 @@ def main():
 
     logger.info(f"=== PIPELINE CONCLUÍDO COM SUCESSO EM {tempo_formatado} ===")
     notifier.send_message(
-        f"✅ *Pipeline Finalizado ({mes_ano})*\n⏳ *Tempo total de execução:* {tempo_formatado}\nTodas as camadas (Bronze, Silver, Gold) foram processadas com sucesso!", 
+        f"✅ *Pipeline Finalizado ({mes_ano})*\n *Tempo total de execução:* {tempo_formatado}\nTodas as camadas (Bronze, Silver, Gold) foram processadas com sucesso!", 
         "success"
     )
     sys.exit(0)
