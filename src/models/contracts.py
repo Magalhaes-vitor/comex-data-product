@@ -1,6 +1,31 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 
+class RegistroComexMdic(BaseModel):
+    ano: str = Field(..., description="Ano de referência do registro")
+    mes: str = Field(..., description="Mês de referência do registro")
+    fluxo: str = Field(..., description="Fluxo comercial: export ou import")
+    pais: str = Field(..., alias="country", description="País parceiro comercial")
+    valor_fob_usd: float = Field(..., alias="metricFOB", description="Valor FOB em dólares")
+    peso_kg: float = Field(..., alias="metricKG", description="Peso em quilogramas")
+
+    @field_validator('fluxo')
+    @classmethod
+    def validar_fluxo(cls, v: str) -> str:
+        if v.lower() not in ['export', 'import']:
+            raise ValueError("O fluxo deve ser estritamente 'export' ou 'import'")
+        return v.lower()
+
+    @field_validator('valor_fob_usd', 'peso_kg', mode='before')
+    @classmethod
+    def tratar_numericos(cls, v):
+        """Garante a conversão limpa de strings ou nulos para float."""
+        if v is None or str(v).strip() in ['-', '', 'None']:
+            return 0.0
+        if isinstance(v, str):
+            return float(v.replace('.', '').replace(',', '.'))
+        return float(v)
+
 class MovimentacaoPortuaria(BaseModel):
     """
     Contrato de Dados para a camada Silver. 
