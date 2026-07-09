@@ -63,6 +63,30 @@ class DataLakeConnector:
                 logger.error(f"Falha na gravação do Parquet local ({local_path}): {e}")
                 return False
 
+    def read_parquet(self, layer: str, service: str, filename: str) -> pd.DataFrame:
+        """Lê um arquivo Parquet do backend configurado e retorna um DataFrame."""
+        if self.backend == "s3":
+            s3_path = f"s3://{self.bucket_name}/{self._resolve_s3_key(layer, service, filename)}"
+            try:
+                df = pd.read_parquet(s3_path)
+                logger.info(f"Arquivo Parquet lido com sucesso do S3: {s3_path}")
+                return df
+            except Exception as e:
+                logger.error(f"Falha na leitura do Parquet do S3 ({s3_path}): {e}")
+                return None
+        else:
+            local_path = self._resolve_local_path(layer, service, filename)
+            if not os.path.exists(local_path):
+                logger.error(f"Arquivo Parquet local inexistente: {local_path}")
+                return None
+            try:
+                df = pd.read_parquet(local_path)
+                logger.info(f"Arquivo Parquet lido localmente com sucesso: {local_path}")
+                return df
+            except Exception as e:
+                logger.error(f"Falha na leitura do Parquet local: {e}")
+                return None
+
     def save_json(self, data: dict, layer: str, service: str, filename: str) -> bool:
         """Persiste estruturas de dicionários JSON diretamente na camada definida."""
         if self.backend == "s3":
