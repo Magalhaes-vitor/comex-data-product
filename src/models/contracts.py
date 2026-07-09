@@ -108,3 +108,12 @@ class RegistroConab(BaseModel):
         if isinstance(v, str):
             return float(v.replace('.', '').replace(',', '.'))
         return float(v)
+
+class RegistroAntaq(BaseModel):
+    ano: int
+    mes: int
+    cd_mercadoria: str
+    cd_terminal: str
+    vl_peso_carga_bruta: float
+    # Permite colunas dinâmicas extras da base ANTAQ
+    model_config = {"extra": "allow"}
