@@ -64,8 +64,11 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 - [x] Garantir códigos de saída (`sys.exit`) corretos para monitoramento de contêineres *(verificação de código pendente — confirmar que os circuit breakers de quarentena também propagam exit code, não só falhas de rede)*
 
 ### Fase 4 — Data Lake e Camadas (Roadmap)
-- [ ] Refatorar caminhos locais de disco para AWS S3 (boto3)
-- [ ] Silver: consolidação do armazenamento limpo no S3
+- [x] Refatorar caminhos locais de disco para AWS S3 (boto3)
+- [x] Silver: consolidação do armazenamento limpo no S3
+- [x] Reconciliação com Comex Stat (MDIC)
+- [x] Contextualização sazonal com calendário CONAB
+- [ ] Comparativo de market share via ANTAQ
 - [ ] Gold: cruzamento das fontes e modelo dimensional *(confirmar se `feat/gold-layer` já cobre parte disso)*
 - [ ] Consulta via Amazon Athena
 
@@ -73,11 +76,6 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 - [ ] Containerizar os pipelines com Docker
 - [ ] Deploy serverless no AWS ECS / Fargate (com gatilho EventBridge)
 - [ ] Provisionamento via AWS SAM dos recursos validados
-
-### Fase 6 — Profundidade Analítica (Roadmap)
-- [ ] Reconciliação com Comex Stat (MDIC)
-- [ ] Contextualização sazonal com calendário CONAB
-- [ ] Comparativo de market share via ANTAQ
 
 ### Fase 7 — Entrega (Roadmap)
 - [ ] Dashboard Power BI

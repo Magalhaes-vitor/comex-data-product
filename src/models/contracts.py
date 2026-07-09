@@ -83,3 +83,28 @@ class CotacaoBacen(BaseModel):
         if isinstance(value, str) and ' ' in value:
             return value.split(' ')[0]
         return value
+
+class RegistroConab(BaseModel):
+    ano_referencia: str = Field(..., description="Ano de referência do registro")
+    mes_referencia: str = Field(..., description="Mês de referência do registro")
+    estado: str = Field(..., description="Sigla da UF (Unidade Federativa)")
+    cultura: str = Field(..., description="Nome da cultura padronizada com o APS")
+    producao_mil_t: float = Field(..., description="Produção estimada na safra atual (em mil toneladas)")
+
+    @field_validator('estado')
+    @classmethod
+    def validar_estado(cls, v: str) -> str:
+        ufs = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
+        if v.upper() not in ufs:
+            raise ValueError("Estado inválido")
+        return v.upper()
+
+    @field_validator('producao_mil_t', mode='before')
+    @classmethod
+    def tratar_numericos(cls, v):
+        """Garante que a produção, mesmo que venha em branco ou com hífen, vire um float."""
+        if v is None or str(v).strip() in ['-', '', 'None', 'nan', 'NaN']:
+            return 0.0
+        if isinstance(v, str):
+            return float(v.replace('.', '').replace(',', '.'))
+        return float(v)
