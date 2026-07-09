@@ -19,14 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 def _is_retryable(exception):
-    """
-    Só faz retry em falhas transitórias (timeout, erro de conexão, 5xx).
-    Erros 4xx (payload inválido, etc.) não devem ser retentados,
-    pois vão falhar sempre da mesma forma.
-    """
+    #Filtro de resiliência: retenta erros 5xx, timeout, conexões e 429 (Rate Limit).
     if isinstance(exception, requests.exceptions.HTTPError):
         status = exception.response.status_code if exception.response is not None else None
-        return status is not None and status >= 500
+        return status is not None and (status >= 500 or status == 429)
     return isinstance(exception, (requests.exceptions.ConnectionError, requests.exceptions.Timeout))
 
 
@@ -41,17 +37,14 @@ class MDICExtractor:
         }
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=2, min=12, max=30),
         retry=retry_if_exception(_is_retryable),
         reraise=True
     )
     def _fetch_flow(self, ano, mes_num, flow):
-        """
-        Busca os dados de um fluxo específico (import ou export) para o mês alvo.
-        Formato de payload conforme documentação oficial da API Comex Stat
-        (https://api-comexstat.mdic.gov.br/docs/doc.yaml).
-        """
+        #Busca os dados de um fluxo específico (import ou export) para o mês alvo.
+
         periodo_str = f"{ano}-{mes_num:02d}"
 
         payload = {
@@ -91,11 +84,7 @@ class MDICExtractor:
         return None
 
     def fetch_comex_data(self, ano, mes_num):
-        """
-        Busca os dados de importação e exportação (Balança Comercial) do mês alvo.
-        A API exige uma chamada separada por fluxo ("import" ou "export"),
-        então aqui as duas são combinadas em um único payload de saída.
-        """
+        #Busca os dados de importação e exportação (Balança Comercial) do mês alvo.
         resultado = {
             "export": self._fetch_flow(ano, mes_num, "export"),
             "import": self._fetch_flow(ano, mes_num, "import"),

@@ -4,7 +4,7 @@ import pytest
 import tempfile
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from src.transformers.cleaner import APSCleaner
+from src.transformers.aps_cleaner import APSCleaner
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "aps")
 
