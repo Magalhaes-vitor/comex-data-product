@@ -1,19 +1,18 @@
 import os
 import sys
+import time
+import logging
+import requests
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Adiciona a raiz do projeto ao path para permitir os imports da pasta src
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from src.utils.notifier import Notifier
+from src.utils.notifier import notifier
 from src.utils.date_rules import DateRules
-
-import time
-import logging
-import json
-import requests
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from src.utils.storage import connector
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -30,10 +29,7 @@ class BacenExtractor:
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
-        
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        self.bronze_dir = os.path.join(project_root, "data", "bronze", "bacen")
-        os.makedirs(self.bronze_dir, exist_ok=True)
+        # As dependências de pastas locais (os.makedirs, etc) foram delegadas para o conector.
 
     @retry(
         stop=stop_after_attempt(3),
@@ -72,16 +68,16 @@ class BacenExtractor:
             return False
             
         file_name = f"bacen_ptax_{ano}_{mes}.json"
-        file_path = os.path.join(self.bronze_dir, file_name)
-        
         logger.info(f"Iniciando ingestão do ficheiro (Camada Bronze): {file_name}")
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
-            logger.info(f"JSON salvo com sucesso em: {file_path}")
+        
+        # Chamada direta para o S3 (ou Local) sem manipular caminhos manualmente
+        sucesso = connector.save_json(data, "bronze", "bacen", file_name)
+        
+        if sucesso:
+            logger.info("JSON salvo com sucesso via DataLakeConnector!")
             return True
-        except IOError as e:
-            logger.error(f"Erro de I/O ao salvar o ficheiro JSON: {e}")
+        else:
+            logger.error("Falha ao salvar o ficheiro JSON no conector.")
             return False
 
     def run(self):
@@ -91,7 +87,7 @@ class BacenExtractor:
         periodo = DateRules.get_target_period()
         data_ini = periodo["data_inicial"]
         data_fim = periodo["data_final"]
-        ano = periodo["ano"]
+        ano = str(periodo["ano"])
         mes = periodo["mes_str"]
         
         logger.info(f"Regra de Negócio: Intervalo cambial definido para: {data_ini} até {data_fim}")
@@ -99,17 +95,26 @@ class BacenExtractor:
         try:
             payload = self.fetch_ptax_data(data_ini, data_fim)
             if payload:
-                self.save_to_bronze(payload, ano, mes)
+                return self.save_to_bronze(payload, ano, mes)
             else:
-                logger.error("Pipeline interrompido: Ingestão cambial indisponível.")
+                msg_erro = "Pipeline interrompido: Ingestão cambial indisponível."
+                logger.error(msg_erro)
+                notifier.send_message(f"⚠️ *Extrator Bacen*\n{msg_erro}", "warning")
+                return False
         except Exception as e:
             error_msg = f"Esgotadas todas as tentativas de extração. Erro final: {e}"
             logger.error(f"FALHA CRÍTICA: {error_msg}")
-            
-            Notifier.send_alert("Bacen Extractor (PTAX)", error_msg)
-            
-        logger.info("=== Processo Finalizado ===")
+            notifier.send_message(f"❌ *Falha Extrator Bacen*\n{error_msg}", "error")
+            return False
+        finally:
+            logger.info("=== Processo Finalizado ===")
 
 if __name__ == "__main__":
     extractor = BacenExtractor()
-    extractor.run()
+    sucesso = extractor.run()
+    
+    if sucesso:
+        notifier.send_message("✅ *Extrator Bacen*\nIngestão do JSON cambial concluída na camada Bronze!", "success")
+        sys.exit(0)
+    else:
+        sys.exit(1)

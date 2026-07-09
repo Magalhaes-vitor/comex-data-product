@@ -14,6 +14,7 @@ from src.utils.notifier import notifier
 from src.models.contracts import MovimentacaoPortuaria
 from src.utils.date_rules import DateRules
 from src.utils.quarantine import QuarantineManager
+from src.utils.storage import connector
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class APSCleaner:
         self.file_name = file_name
         self.ano = str(ano)
         self.mes = str(mes)
-        self.bronze_path = os.path.join(project_root, "data", "bronze", "aps", file_name)
+        self.bronze_path = connector.obtain_file_path("bronze", "aps", self.file_name)
         self.silver_dir = os.path.join(project_root, "data", "silver", "aps")
         os.makedirs(self.silver_dir, exist_ok=True)
 
@@ -172,52 +173,58 @@ class APSCleaner:
 
         quarantine.save_rejections()
         
-        # A hora da verdade: os Guardiões (O "E" Lógico)
+        # Avaliação dos Circuit Breakers com os mapeamentos corretos de variáveis
         linha_ok = quarantine.evaluate_line_breaker(total_linhas_tentadas, threshold_percentual=5.0)
-        cobertura_ok = quarantine.evaluate_coverage_breaker(volume_validado_toneladas, volume_total_oficial_pdf, threshold_percentual=2.0)
-        
-        if not (linha_ok and cobertura_ok):
-            logger.error("Processamento abortado! Dados não confiáveis. A camada Silver não será atualizada.")
+        volume_ok = quarantine.evaluate_coverage_breaker(
+            volume_validado=volume_validado_toneladas,        
+            volume_total_oficial=volume_total_oficial_pdf,  
+            threshold_percentual=5.0
+        )
+
+        if not linha_ok or not volume_ok:
+            logger.error("Processamento abortado pelos Circuit Breakers. A camada Silver não será atualizada.")
             return False
 
-        if linhas_validadas:
-            df = pd.DataFrame(linhas_validadas)
-            silver_file = os.path.join(self.silver_dir, f"aps_movimentacao_{self.ano}_{self.mes}.parquet")
-            df.to_parquet(silver_file, index=False)
-            
-            logger.info(f"Sucesso! {len(df)} registros aprovados (Pág {numero_pagina_alvo}). Cobertura: {volume_validado_toneladas:,.2f} ton de {volume_total_oficial_pdf:,.2f} ton declaradas.")
-            logger.info(f"Arquivo Silver gerado em: {silver_file}")
-            return True
+        if not linhas_validadas:
+            logger.warning("Nenhum registro de movimentação foi validado com sucesso.")
+            return False
+
+        # Converte a lista estruturada de dicionários em DataFrame do Pandas
+        df = pd.DataFrame(linhas_validadas)
+
+        nome_arquivo_silver = f"aps_movimentacao_{self.ano}_{self.mes}.parquet"
+        sucesso_escrita = connector.save_parquet(df, "silver", "aps", nome_arquivo_silver)
         
-        logger.warning("Nenhum dado válido extraído.")
-        return False
+        if sucesso_escrita:
+            logger.info(f"Sucesso! {len(df)} registros aprovados (Pág {numero_pagina_alvo}). Cobertura: {volume_validado_toneladas:,.2f} ton de {volume_total_oficial_pdf:,.2f} ton declaradas.")
+            logger.info(f"Arquivo Silver encaminhado via DataLakeConnector: {nome_arquivo_silver}")
+            return True
+        else:
+            logger.error("Falha ao persistir dados da APS na camada Silver.")
+            return False
 
 if __name__ == "__main__":
     periodo = DateRules.get_target_period()
     ano_alvo = str(periodo["ano"])
     mes_alvo = periodo["mes_str"]
     
-    bronze_dir = os.path.join(project_root, "data", "bronze", "aps")
-    padrao_busca = os.path.join(bronze_dir, f"aps_mensario_{ano_alvo}_{mes_alvo}_id_*.pdf")
-    arquivos_alvo = glob.glob(padrao_busca)
+    prefixo = f"aps_mensario_{ano_alvo}_{mes_alvo}_id_"
+    nome_arquivo = connector.find_latest_file("bronze", "aps", prefixo, ".pdf")
     
-    if not arquivos_alvo:
-        msg = f"Nenhum arquivo PDF encontrado na camada Bronze para ({mes_alvo}/{ano_alvo})."
+    if not nome_arquivo:
+        msg = f"Nenhum ficheiro PDF encontrado na camada Bronze para ({mes_alvo}/{ano_alvo})."
         logger.error(msg)
         notifier.send_message(f"⚠️ *Pipeline APS Abortado*\n{msg}", "warning")
-        sys.exit(1) # Informa ao Docker/AWS que falhou
+        sys.exit(1)
     else:
-        arquivo_alvo = max(arquivos_alvo, key=os.path.getctime)
-        nome_arquivo = os.path.basename(arquivo_alvo)
-        
-        logger.info(f"Regra de Negócio: Arquivo alvo validado para {mes_alvo.upper()}/{ano_alvo}: {nome_arquivo}")
+        logger.info(f"Regra de Negócio: Ficheiro alvo validado para {mes_alvo.upper()}/{ano_alvo}: {nome_arquivo}")
         
         cleaner = APSCleaner(file_name=nome_arquivo, ano=ano_alvo, mes=mes_alvo)
         sucesso = cleaner.extract_and_clean()
         
         if sucesso:
-            notifier.send_message(f"✅ *Pipeline APS Concluído ({mes_alvo.upper()}/{ano_alvo})*\nCamada Silver atualizada com sucesso!", "success")
-            sys.exit(0) # Informa ao Docker/AWS que foi sucesso absoluto
+            notifier.send_message(f"✅ *Pipeline APS Concluído ({mes_alvo.upper()}/{ano_alvo})*\nCamada Silver atualizada com sucesso no backend ativo!", "success")
+            sys.exit(0)
         else:
             notifier.send_message(f"❌ *Falha no Pipeline APS ({mes_alvo.upper()}/{ano_alvo})*\nProcessamento interrompido. Verifique os logs e a Quarentena.", "error")
-            sys.exit(1) # Informa ao Docker/AWS que falhou
+            sys.exit(1)

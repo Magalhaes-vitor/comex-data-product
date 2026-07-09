@@ -1,11 +1,10 @@
-import os
 import sys
-import json
 import logging
 import pandas as pd
 from pydantic import ValidationError
 
 # Adiciona a raiz do projeto ao path para permitir os imports da pasta src
+import os
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
@@ -14,6 +13,7 @@ from src.models.contracts import CotacaoBacen
 from src.utils.date_rules import DateRules
 from src.utils.quarantine import QuarantineManager
 from src.utils.notifier import notifier
+from src.utils.storage import connector  # A nossa nova abstração!
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -22,20 +22,18 @@ class BacenCleaner:
     def __init__(self, ano, mes):
         self.ano = str(ano)
         self.mes = str(mes)
-        self.file_name = f"bacen_ptax_{ano}_{mes}.json"
-        self.bronze_path = os.path.join(project_root, "data", "bronze", "bacen", self.file_name)
-        self.silver_dir = os.path.join(project_root, "data", "silver", "bacen")
-        os.makedirs(self.silver_dir, exist_ok=True)
+        self.file_name_bronze = f"bacen_ptax_{ano}_{mes}.json"
+        self.file_name_silver = f"bacen_ptax_{ano}_{mes}.parquet"
 
     def extract_and_clean(self):
-        logger.info(f"A iniciar leitura e validação do JSON: {self.bronze_path}")
+        logger.info(f"A solicitar leitura do JSON ao DataLakeConnector: {self.file_name_bronze}")
         
-        if not os.path.exists(self.bronze_path):
-            logger.error("Ficheiro da camada Bronze não encontrado.")
+        # O conector decide se lê do disco ou faz download do S3!
+        data = connector.read_json("bronze", "bacen", self.file_name_bronze)
+        
+        if not data:
+            logger.error("Ficheiro da camada Bronze não encontrado ou corrompido.")
             return False
-
-        with open(self.bronze_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
 
         cotacoes = data.get("value", [])
         if not cotacoes:
@@ -46,7 +44,7 @@ class BacenCleaner:
             pipeline_name="bacen",
             ano=self.ano,
             mes=self.mes,
-            arquivo_origem=self.file_name
+            arquivo_origem=self.file_name_bronze
         )
 
         linhas_validadas = []
@@ -78,23 +76,25 @@ class BacenCleaner:
                 )
 
         quarantine.save_rejections()
-
         linha_ok = quarantine.evaluate_line_breaker(total_linhas_tentadas, threshold_percentual=5.0)
 
         if not linha_ok:
-            logger.error("Processamento abortado! Dados cambiais não confiáveis. A camada Silver não será atualizada.")
+            logger.error("Processamento abortado! Dados cambiais não confiáveis.")
             return False
 
         if linhas_validadas:
             df = pd.DataFrame(linhas_validadas)
             df['data_cotacao'] = pd.to_datetime(df['data_cotacao'])
             
-            silver_file = os.path.join(self.silver_dir, f"bacen_ptax_{self.ano}_{self.mes}.parquet")
-            df.to_parquet(silver_file, index=False)
+            # O conector trata da escrita (disco local ou bucket S3)
+            sucesso_escrita = connector.save_parquet(df, "silver", "bacen", self.file_name_silver)
             
-            logger.info(f"Sucesso! {len(df)} dias de cotação aprovados.")
-            logger.info(f"Ficheiro Silver gerado em: {silver_file}")
-            return True
+            if sucesso_escrita:
+                logger.info(f"Sucesso! {len(df)} dias de cotação validados e enviados para a camada Silver.")
+                return True
+            else:
+                logger.error("Falha ao persistir dados na camada Silver.")
+                return False
             
         logger.warning("Nenhum dado válido extraído para a camada Silver do Bacen.")
         return False
@@ -110,7 +110,7 @@ if __name__ == "__main__":
     sucesso = cleaner.extract_and_clean()
     
     if sucesso:
-        notifier.send_message(f"✅ *Pipeline Bacen Concluído ({mes_alvo.upper()}/{ano_alvo})*\nCamada Silver atualizada com as cotações PTAX!", "success")
+        notifier.send_message(f"✅ *Pipeline Bacen Concluído ({mes_alvo.upper()}/{ano_alvo})*\nCamada Silver atualizada no backend ativo!", "success")
         sys.exit(0)
     else:
         notifier.send_message(f"❌ *Falha no Pipeline Bacen ({mes_alvo.upper()}/{ano_alvo})*\nProcessamento interrompido. Verifique os logs.", "error")

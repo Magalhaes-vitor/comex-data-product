@@ -1,10 +1,13 @@
 import os
 import re
 import sys
+import ssl
 import time
 import logging
 import requests
 import urllib3
+from datetime import datetime
+from requests.adapters import HTTPAdapter
 from urllib.parse import urlparse, parse_qs
 from bs4 import BeautifulSoup
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -13,8 +16,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from src.utils.notifier import Notifier
-from src.utils.date_rules import DateRules
+from src.utils.notifier import notifier
+from src.utils.storage import connector
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -24,16 +27,49 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class LegacySSLAdapter(HTTPAdapter):
+    """Adaptador que força o OpenSSL a aceitar cifras antigas e ignora validações de certificado."""
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = urllib3.util.ssl_.create_urllib3_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        ctx.options |= 0x4  # Força o parâmetro ssl.OP_LEGACY_SERVER_CONNECT
+        kwargs['ssl_context'] = ctx
+        return super(LegacySSLAdapter, self).init_poolmanager(*args, **kwargs)
+
 class APSExtractor:
     def __init__(self):
         self.base_url = "https://www.portodesantos.com.br/informacoes-operacionais/estatisticas/mensario-estatistico/"
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
         
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        self.bronze_dir = os.path.join(project_root, "data", "bronze", "aps")
-        os.makedirs(self.bronze_dir, exist_ok=True)
+        # Centraliza as requisições em uma sessão blindada contra falhas de SSL/TLS
+        self.session = requests.Session()
+        self.session.mount('https://', LegacySSLAdapter())
+        self.session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+        
+        self.meses_pt = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+
+    def get_target_period(self):
+        hoje = datetime.now()
+        dia_atual = hoje.day
+        mes_atual = hoje.month
+        ano_actual = hoje.year
+
+        if dia_atual <= 15:
+            mes_alvo_num = mes_atual - 2
+        else:
+            mes_alvo_num = mes_atual - 1
+
+        ano_alvo = ano_actual
+        if mes_alvo_num <= 0:
+            mes_alvo_num += 12
+            ano_alvo -= 1
+
+        mes_alvo_str = self.meses_pt[mes_alvo_num - 1]
+        logger.info(f"Regra de Negócio: Dia {dia_atual}. Alvo da extração definido para: {mes_alvo_str.upper()}/{ano_alvo}")
+        
+        return str(ano_alvo), mes_alvo_str
 
     @retry(
         stop=stop_after_attempt(3),
@@ -44,7 +80,9 @@ class APSExtractor:
     def get_specific_pdf_link(self, target_year, target_month):
         logger.info(f"Varrendo o portal da APS em busca do ID correspondente...")
         time.sleep(2)
-        response = requests.get(self.base_url, headers=self.headers, verify=False, timeout=15)
+        
+        # Realiza a chamada repassando o parâmetro de desativação de checagem
+        response = self.session.get(self.base_url, verify=False, timeout=15)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -81,45 +119,46 @@ class APSExtractor:
         doc_id = parse_qs(parsed_url.query).get('id', ['unknown'])[0]
         
         file_name = f"aps_mensario_{ano}_{mes}_id_{doc_id}.pdf"
-        file_path = os.path.join(self.bronze_dir, file_name)
-
         logger.info(f"Iniciando ingestão do arquivo (Camada Bronze): {file_name}")
         
         time.sleep(2)
-        response = requests.get(pdf_url, headers=self.headers, verify=False, stream=True, timeout=30)
+        response = self.session.get(pdf_url, verify=False, timeout=30)
         response.raise_for_status()
 
-        with open(file_path, 'wb') as file:
-            for chunk in response.iter_content(chunk_size=8192):
-                file.write(chunk)
+        # O conector gerencia o destino final baseado no .env (Local ou S3)
+        sucesso = connector.save_binary(response.content, "bronze", "aps", file_name)
         
-        logger.info(f"Download concluído com sucesso! Salvo em: {file_path}")
-        return True
+        if sucesso:
+            logger.info("Download e persistência concluídos com sucesso via DataLakeConnector!")
+            return True
+        else:
+            logger.error("Falha ao salvar o arquivo binário no conector.")
+            return False
 
     def run(self):
         logger.info("=== Iniciando Pipeline de Extração: Porto de Santos ===")
-        
-        # Consome a fonte única de verdade para regras de datas
-        periodo = DateRules.get_target_period()
-        ano_alvo = periodo["ano"]
-        mes_alvo = periodo["mes_str"]
-        
-        logger.info(f"Regra de Negócio: Alvo da extração definido para: {mes_alvo.upper()}/{ano_alvo}")
+        ano_alvo, mes_alvo = self.get_target_period()
         
         try:
             pdf_link = self.get_specific_pdf_link(ano_alvo, mes_alvo)
             if pdf_link:
-                self.download_pdf(pdf_link, ano_alvo, mes_alvo)
+                return self.download_pdf(pdf_link, ano_alvo, mes_alvo)
             else:
                 logger.error(f"Pipeline interrompido: Dado de origem ({mes_alvo}/{ano_alvo}) não localizado.")
+                notifier.send_message(f"⚠️ *Extrator APS*\nDado de origem ({mes_alvo.upper()}/{ano_alvo}) não localizado no portal.", "warning")
+                return False
         except Exception as e:
             error_msg = f"Esgotadas todas as tentativas de extração. Erro: {e}"
             logger.error(f"FALHA CRÍTICA: {error_msg}")
-                            
-            Notifier.send_alert("APS Extractor (Porto de Santos)", error_msg)
-            
-        logger.info("=== Processo Finalizado ===")
+            notifier.send_message(f"❌ *Falha Extrator APS*\n{error_msg}", "error")
+            return False
 
 if __name__ == "__main__":
     extractor = APSExtractor()
-    extractor.run()
+    sucesso = extractor.run()
+    
+    if sucesso:
+        notifier.send_message("✅ *Extrator APS*\nIngestão do PDF bruto concluída na camada Bronze!", "success")
+        sys.exit(0)
+    else:
+        sys.exit(1)

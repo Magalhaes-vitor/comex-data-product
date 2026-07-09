@@ -67,7 +67,7 @@ class QuarantineManager:
             logger.warning("[Breaker Linhas] Nenhuma linha foi processada. Validação ignorada.")
             return True
             
-        total_rejeicoes = len(self.rejeitados)
+        total_rejeicoes = len(self.rejeitos)
         taxa_falha = (total_rejeicoes / total_linhas_tentadas) * 100
         
         logger.info(f"[Breaker Linhas] {total_rejeicoes} rejeições em {total_linhas_tentadas} linhas ({taxa_falha:.2f}% de falha).")
