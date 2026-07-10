@@ -1,12 +1,6 @@
--- =========================================================================
--- DATABASE CONFIGURATION
--- =========================================================================
-CREATE DATABASE IF NOT EXISTS comex_data_product;
-
--- =========================================================================
--- TABELA 1: FATO MOVIMENTAÇÃO E CÂMBIO (APS)
--- =========================================================================
-CREATE EXTERNAL TABLE IF NOT EXISTS comex_data_product.fato_movimentacao_cambio (
+CREATE EXTERNAL TABLE IF NOT EXISTS fato_movimentacao_cambio (
+    ano STRING,
+    mes STRING,
     porto STRING,
     sentido STRING,
     mercadoria STRING,
@@ -19,10 +13,7 @@ STORED AS PARQUET
 LOCATION 's3://comex-data-lake-magalhaes-vitor/data/gold/market_intelligence_aps/'
 TBLPROPERTIES ('classification'='parquet');
 
--- =========================================================================
--- TABELA 2: FATO BALANÇA COMERCIAL (MDIC)
--- =========================================================================
-CREATE EXTERNAL TABLE IF NOT EXISTS comex_data_product.fato_balanca_mdic (
+CREATE EXTERNAL TABLE IF NOT EXISTS fato_balanca_mdic (
     ano STRING,
     mes STRING,
     ncm STRING,
@@ -36,10 +27,11 @@ STORED AS PARQUET
 LOCATION 's3://comex-data-lake-magalhaes-vitor/data/gold/market_intelligence_mdic/'
 TBLPROPERTIES ('classification'='parquet');
 
--- =========================================================================
--- TABELA 3: FATO ORIGEM AGRÍCOLA (APS + CONAB)
--- =========================================================================
-CREATE EXTERNAL TABLE IF NOT EXISTS comex_data_product.fato_origem_agricola (
+CREATE EXTERNAL TABLE IF NOT EXISTS fato_origem_agricola (
+    ano STRING,
+    mes STRING,
+    ano_referencia STRING,
+    mes_referencia STRING,
     porto STRING,
     sentido STRING,
     mercadoria STRING,

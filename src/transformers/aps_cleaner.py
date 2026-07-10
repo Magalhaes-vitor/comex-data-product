@@ -111,6 +111,12 @@ class APSCleaner:
             val_col1 = str(row[1]).strip() if len(row) > 1 and row[1] else ""
             
             mercadoria = val_col1 if val_col1 else val_col0
+            
+            # --- CORREÇÃO APLICADA: SANITIZAÇÃO DE WHITESPACE E QUEBRAS DE LINHA (\n) ---
+            mercadoria = mercadoria.replace('\n', ' ')
+            mercadoria = " ".join(mercadoria.split()).strip()
+            # ----------------------------------------------------------------------------
+            
             merc_upper = mercadoria.upper()
             
             if not merc_upper: continue

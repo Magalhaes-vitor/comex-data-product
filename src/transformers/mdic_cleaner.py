@@ -64,6 +64,8 @@ class MDICCleaner:
                 
                 try:
                     # Validação rigorosa pelo Pydantic Contract
+                    if not item.get("coNcm") and not item.get("co_ncm"):
+                        logger.warning("Registro sem chave NCM identificada — payload da API pode ter mudado de formato.")
                     obj_valido = RegistroComexMdic(
                         ano=self.ano,
                         mes=self.mes,

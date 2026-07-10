@@ -54,7 +54,7 @@ class MDICExtractor:
                 "from": periodo_str,
                 "to": periodo_str
             },
-            "details": ["country"],
+            "details": ["country", "ncm"],
             "metrics": ["metricFOB", "metricKG"]
         }
 

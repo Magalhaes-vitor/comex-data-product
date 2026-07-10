@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
+from typing import Optional 
+from pydantic import BaseModel, Field
 
 class RegistroComexMdic(BaseModel):
     ano: str = Field(..., description="Ano de referência do registro")
@@ -8,6 +10,9 @@ class RegistroComexMdic(BaseModel):
     pais: str = Field(..., alias="country", description="País parceiro comercial")
     valor_fob_usd: float = Field(..., alias="metricFOB", description="Valor FOB em dólares")
     peso_kg: float = Field(..., alias="metricKG", description="Peso em quilogramas")
+    coNcm: Optional[str] = None
+    ncm: Optional[str] = None
+    co_ncm: Optional[str] = None
 
     @field_validator('fluxo')
     @classmethod
