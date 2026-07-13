@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import glob
 import logging
@@ -31,20 +32,36 @@ class DataLakeConnector:
         else:
             logger.info("DataLakeConnector operando em modo de Armazenamento LOCAL")
 
-    def _resolve_local_path(self, layer: str, service: str, filename: str) -> str:
-        """Garante a existência da árvore de diretórios local e retorna o caminho."""
+    @staticmethod
+    def _extract_year(filename: str) -> str:
+
+        match = re.search(r'_(\d{4})_', filename)
+        return match.group(1) if match else None
+
+    def _resolve_local_path(self, layer: str, service: str, filename: str, partition_by_year: bool = False) -> str:
+        """Garante a estrutura padronizada de diretórios do Data Lake local."""
         directory = os.path.join(self.project_root, "data", layer, service)
+        if partition_by_year:
+            ano = self._extract_year(filename)
+            if ano:
+                directory = os.path.join(directory, ano)
         os.makedirs(directory, exist_ok=True)
         return os.path.join(directory, filename)
 
-    def _resolve_s3_key(self, layer: str, service: str, filename: str) -> str:
+    def _resolve_s3_key(self, layer: str, service: str, filename: str, partition_by_year: bool = False) -> str:
         """Garante a estrutura padronizada de chaves do Data Lake no S3."""
+        if partition_by_year:
+            ano = self._extract_year(filename)
+            if ano:
+                return f"data/{layer}/{service}/{ano}/{filename}"
         return f"data/{layer}/{service}/{filename}"
 
     def save_parquet(self, df: pd.DataFrame, layer: str, service: str, filename: str) -> bool:
         """Grava um DataFrame do Pandas em formato colunar Parquet no backend configurado."""
+
         if self.backend == "s3":
-            s3_path = f"s3://{self.bucket_name}/{self._resolve_s3_key(layer, service, filename)}"
+            s3_key = self._resolve_s3_key(layer, service, filename, partition_by_year=True)
+            s3_path = f"s3://{self.bucket_name}/{s3_key}"
             try:
                 # O pandas utiliza a biblioteca s3fs de forma implícita para streams de rede S3
                 df.to_parquet(s3_path, index=False)
@@ -54,7 +71,7 @@ class DataLakeConnector:
                 logger.error(f"Falha na gravação do Parquet para o S3 ({s3_path}): {e}")
                 return False
         else:
-            local_path = self._resolve_local_path(layer, service, filename)
+            local_path = self._resolve_local_path(layer, service, filename, partition_by_year=True)
             try:
                 df.to_parquet(local_path, index=False)
                 logger.info(f"Arquivo Parquet persistido localmente com sucesso: {local_path}")
@@ -64,20 +81,30 @@ class DataLakeConnector:
                 return False
 
     def read_parquet(self, layer: str, service: str, filename: str) -> pd.DataFrame:
-        """Lê um arquivo Parquet do backend configurado e retorna um DataFrame."""
+        """Recupera um DataFrame do Pandas a partir de um arquivo Parquet no backend configurado."""
         if self.backend == "s3":
-            s3_path = f"s3://{self.bucket_name}/{self._resolve_s3_key(layer, service, filename)}"
-            try:
-                df = pd.read_parquet(s3_path)
-                logger.info(f"Arquivo Parquet lido com sucesso do S3: {s3_path}")
-                return df
-            except Exception as e:
-                logger.error(f"Falha na leitura do Parquet do S3 ({s3_path}): {e}")
-                return None
+            partitioned_key = self._resolve_s3_key(layer, service, filename, partition_by_year=True)
+            legacy_key = self._resolve_s3_key(layer, service, filename, partition_by_year=False)
+
+            for key in dict.fromkeys([partitioned_key, legacy_key]):  # remove duplicata se ano não identificado
+                s3_path = f"s3://{self.bucket_name}/{key}"
+                try:
+                    df = pd.read_parquet(s3_path)
+                    logger.info(f"Arquivo Parquet lido com sucesso do S3: {s3_path}")
+                    return df
+                except Exception as e:
+                    logger.warning(f"Não encontrado em {s3_path} ({e}). Tentando caminho alternativo...")
+
+            logger.error(f"Arquivo Parquet não encontrado no S3 em nenhum dos caminhos esperados (Chave: {filename}).")
+            return None
         else:
-            local_path = self._resolve_local_path(layer, service, filename)
+            partitioned_path = self._resolve_local_path(layer, service, filename, partition_by_year=True)
+            legacy_path = self._resolve_local_path(layer, service, filename, partition_by_year=False)
+
+            local_path = partitioned_path if os.path.exists(partitioned_path) else legacy_path
+
             if not os.path.exists(local_path):
-                logger.error(f"Arquivo Parquet local inexistente: {local_path}")
+                logger.error(f"Arquivo Parquet local inexistente (verificado em {partitioned_path} e {legacy_path}).")
                 return None
             try:
                 df = pd.read_parquet(local_path)
@@ -159,11 +186,7 @@ class DataLakeConnector:
                 return None
 
     def obtain_file_path(self, layer: str, service: str, filename: str) -> str:
-        """
-        Garante a disponibilidade física do arquivo no disco.
-        Caso o backend seja S3, realiza o download sob demanda. Útil para motores de processamento
-        que necessitam de ponteiros de caminhos reais do sistema operacional (ex: pdfplumber).
-        """
+        """Obtém o caminho local de um arquivo, baixando do S3 se necessário."""
         local_path = self._resolve_local_path(layer, service, filename)
         
         if self.backend == "s3":

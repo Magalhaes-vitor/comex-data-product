@@ -16,11 +16,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
-from src.utils.date_rules import DateRules
-
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-if project_root not in sys.path:
-    sys.path.append(project_root)
 
 from src.utils.notifier import notifier
 from src.utils.storage import connector
@@ -44,7 +39,22 @@ class LegacySSLAdapter(HTTPAdapter):
         return super(LegacySSLAdapter, self).init_poolmanager(*args, **kwargs)
 
 class APSExtractor:
-    def __init__(self):
+    def __init__(self, ano=None, mes=None):
+        # Desacoplamento: usa o parâmetro se fornecido, senão usa a regra de negócio oficial
+        from src.utils.date_rules import DateRules
+
+        if ano and mes:
+            # mes_str precisa ser a abreviação em pt-br (ex: "mai")
+            period = {
+                "ano": str(ano),
+                "mes_str": DateRules.MESES_PT[int(mes) - 1]
+            }
+        else:
+            period = DateRules.get_target_period()
+
+        self.target_year = period["ano"]
+        self.target_month = period["mes_str"]
+
         self.base_url = "https://www.portodesantos.com.br/informacoes-operacionais/estatisticas/mensario-estatistico/"
         
         # Centraliza as requisições em uma sessão blindada contra falhas de SSL/TLS
@@ -121,18 +131,15 @@ class APSExtractor:
             return False
 
     def run(self):
-        logger.info("=== Iniciando Pipeline de Extração: Porto de Santos ===")
-        periodo = DateRules.get_target_period() # Usa a mesma regra central de todos
-        ano_alvo = str(periodo["ano"])
-        mes_alvo = periodo["mes_str"]
+        logger.info(f"=== Iniciando Pipeline de Extração APS para: {self.target_month.upper()}/{self.target_year} ===")
         
         try:
-            pdf_link = self.get_specific_pdf_link(ano_alvo, mes_alvo)
+            pdf_link = self.get_specific_pdf_link(self.target_year, self.target_month)
             if pdf_link:
-                return self.download_pdf(pdf_link, ano_alvo, mes_alvo)
+                return self.download_pdf(pdf_link, self.target_year, self.target_month)
             else:
-                logger.error(f"Pipeline interrompido: Dado de origem ({mes_alvo}/{ano_alvo}) não localizado.")
-                notifier.send_message(f"⚠️ *Extrator APS*\nDado de origem ({mes_alvo.upper()}/{ano_alvo}) não localizado no portal.", "warning")
+                logger.error(f"Pipeline interrompido: Dado de origem ({self.target_month}/{self.target_year}) não localizado.")
+                notifier.send_message(f"⚠️ *Extrator APS*\nDado de origem ({self.target_month.upper()}/{self.target_year}) não localizado no portal.", "warning")
                 return False
         except Exception as e:
             error_msg = f"Esgotadas todas as tentativas de extração. Erro: {e}"
@@ -141,6 +148,7 @@ class APSExtractor:
             return False
 
 if __name__ == "__main__":
+    # Teste de execução direta: usará o DateRules (mês corrente defasado)
     extractor = APSExtractor()
     sucesso = extractor.run()
     

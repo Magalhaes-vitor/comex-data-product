@@ -27,7 +27,20 @@ def _is_retryable(exception):
 
 
 class MDICExtractor:
-    def __init__(self):
+    def __init__(self, ano=None, mes=None):
+        # Desacoplamento: usa o parâmetro se fornecido, senão usa a regra de negócio oficial
+        if ano and mes:
+            # mes_str precisa ser a abreviação em pt-br (ex: "mai").
+            period = {
+                "ano": str(ano),
+                "mes_str": DateRules.MESES_PT[int(mes) - 1]
+            }
+        else:
+            period = DateRules.get_target_period()
+
+        self.target_year = period["ano"]
+        self.target_month = period["mes_str"]
+
         # Endpoint público do Comex Stat para dados agregados (Dados Gerais)
         self.api_url = "https://api-comexstat.mdic.gov.br/general"
         self.headers = {
@@ -115,9 +128,8 @@ class MDICExtractor:
     def run(self):
         logger.info("=== Iniciando Pipeline de Extração: MDIC (Comex Stat) ===")
 
-        periodo = DateRules.get_target_period()
-        ano = str(periodo["ano"])
-        mes_str = periodo["mes_str"]
+        ano = self.target_year
+        mes_str = self.target_month
 
         # Converte a string do mês ('mai') para o número do mês (5) para a API do MDIC
         meses_map = {'jan': 1, 'fev': 2, 'mar': 3, 'abr': 4, 'mai': 5, 'jun': 6,

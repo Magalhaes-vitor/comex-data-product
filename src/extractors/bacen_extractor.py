@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import calendar
 import logging
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -21,7 +22,26 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class BacenExtractor:
-    def __init__(self):
+    def __init__(self, ano=None, mes=None):
+        # Desacoplamento: usa o parâmetro se fornecido, senão usa a regra de negócio oficial
+        if ano and mes:
+            mes_num = int(mes)
+            _, ultimo_dia = calendar.monthrange(int(ano), mes_num)
+            # A API do PTAX precisa do intervalo de datas (data_inicial/data_final).
+            period = {
+                "ano": str(ano),
+                "mes_str": DateRules.MESES_PT[mes_num - 1],
+                "data_inicial": f"{mes_num:02d}-01-{ano}",
+                "data_final": f"{mes_num:02d}-{ultimo_dia:02d}-{ano}"
+            }
+        else:
+            period = DateRules.get_target_period()
+
+        self.target_year = period["ano"]
+        self.target_month = period["mes_str"]
+        self.target_data_inicial = period["data_inicial"]
+        self.target_data_final = period["data_final"]
+
         self.api_base_url = (
             "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/"
             "CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)"
@@ -82,13 +102,11 @@ class BacenExtractor:
 
     def run(self):
         logger.info("=== Iniciando Pipeline de Extração: Banco Central (PTAX) ===")
-        
-        # Consome a fonte única de verdade para regras de datas
-        periodo = DateRules.get_target_period()
-        data_ini = periodo["data_inicial"]
-        data_fim = periodo["data_final"]
-        ano = str(periodo["ano"])
-        mes = periodo["mes_str"]
+
+        data_ini = self.target_data_inicial
+        data_fim = self.target_data_final
+        ano = self.target_year
+        mes = self.target_month
         
         logger.info(f"Regra de Negócio: Intervalo cambial definido para: {data_ini} até {data_fim}")
         

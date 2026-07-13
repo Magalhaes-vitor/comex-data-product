@@ -27,7 +27,20 @@ def _is_retryable(exception):
     return isinstance(exception, (requests.exceptions.ConnectionError, requests.exceptions.Timeout))
 
 class CONABExtractor:
-    def __init__(self):
+    def __init__(self, ano=None, mes=None):
+        # Desacoplamento: usa o parâmetro se fornecido, senão usa a regra de negócio oficial
+        if ano and mes:
+            # mes_str precisa ser a abreviação em pt-br (ex: "mai").
+            period = {
+                "ano": str(ano),
+                "mes_str": DateRules.MESES_PT[int(mes) - 1]
+            }
+        else:
+            period = DateRules.get_target_period()
+
+        self.target_year = period["ano"]
+        self.target_month = period["mes_str"]
+
         # URL de listagem dos boletins de safra (planilhas .xlsx)
         self.listagem_url = (
             "https://www.gov.br/conab/pt-br/atuacao/informacoes-agropecuarias/"
@@ -151,9 +164,8 @@ class CONABExtractor:
     def run(self):
         logger.info("=== Iniciando Pipeline de Extração: CONAB (Agronegócio) ===")
 
-        periodo = DateRules.get_target_period()
-        ano = str(periodo["ano"])
-        mes_str = periodo["mes_str"]
+        ano = self.target_year
+        mes_str = self.target_month
 
         logger.info(f"Regra de Negócio: Extração Agrícola definida para referência: {mes_str.upper()}/{ano}")
 

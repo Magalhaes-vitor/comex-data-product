@@ -121,7 +121,7 @@ if __name__ == "__main__":
     sucesso = cleaner.extract_and_clean()
     
     if sucesso:
-        notifier.send_message(f"✅ *Pipeline MDIC Silver Concluído ({mes_alvo.upper()}/{ano_alvo})*\nDados comerciais integrados na camada Silver do S3!", "success")
+        notifier.send_message(f"✅ *Pipeline MDIC Silver Concluído ({mes_alvo.upper()}/{ano_alvo})*\nDados comerciais integrados na camada Silver", "success")
         sys.exit(0)
     else:
         notifier.send_message(f"❌ *Falha no Pipeline MDIC Silver ({mes_alvo.upper()}/{ano_alvo})*\nProcessamento abortado. Verifique os logs.", "error")
