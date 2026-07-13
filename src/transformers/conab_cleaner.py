@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import logging
 import pandas as pd
@@ -24,16 +25,33 @@ class CONABCleaner:
         self.file_name_bronze = f"conab_safra_{ano}_{mes}.json"
         self.file_name_silver = f"conab_safra_{ano}_{mes}.parquet"
 
-        # Mapeamento estrito: De 'Aba da CONAB' para 'Mercadoria do APS'
+        meses_map = {
+            'jan': 1, 'fev': 2, 'mar': 3, 'abr': 4, 'mai': 5, 'jun': 6,
+            'jul': 7, 'ago': 8, 'set': 9, 'out': 10, 'nov': 11, 'dez': 12
+        }
+        mes_num_boletim = meses_map[self.mes.lower()]
+        ano_safra = str(int(self.ano) - 1) if mes_num_boletim <= 6 else self.ano
+
+
         self.target_sheets = {
-            "Soja": "Soja em Grãos",
-            "Milho Total": "Milho",
-            "Trigo": "Trigo",
-            "Arroz Total": "Arroz",
-            "Feijão Total": "Feijão"
+            "Soja em Grãos": ["Soja"],
+            "Milho": ["Milho Total", "Milho"],
+            "Trigo": ["Trigo", "Trigo Total", f"Trigo {ano_safra}", f"Trigo {self.ano}"],
+            "Arroz": ["Arroz Total", "Arroz"],
+            "Feijão": ["Feijão Total", "Feijão"],
         }
         
         self.ufs_validas = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
+
+    @staticmethod
+    def _localizar_aba(cultura_padronizada, nomes_possiveis, abas):
+
+        nome_aba = next((nome for nome in nomes_possiveis if nome in abas), None)
+        if nome_aba:
+            return nome_aba
+
+        padrao = re.compile(rf'^{re.escape(cultura_padronizada)}\s+\d{{4}}$', re.IGNORECASE)
+        return next((k for k in abas.keys() if padrao.fullmatch(k)), None)
 
     def extract_and_clean(self):
         logger.info(f"Solicitando leitura do JSON da CONAB: {self.file_name_bronze}")
@@ -57,11 +75,16 @@ class CONABCleaner:
 
         logger.info("Iniciando extração cirúrgica de Produção por Estado (UF)...")
 
-        for nome_aba, cultura_padronizada in self.target_sheets.items():
-            if nome_aba not in abas:
-                logger.warning(f"Aba '{nome_aba}' não encontrada na planilha atual. Pulando...")
+        for cultura_padronizada, nomes_possiveis in self.target_sheets.items():
+            nome_aba = self._localizar_aba(cultura_padronizada, nomes_possiveis, abas)
+            if not nome_aba:
+                logger.warning(
+                    f"Nenhuma aba correspondente a {nomes_possiveis} (cultura '{cultura_padronizada}') "
+                    f"encontrada em {self.mes.upper()}/{self.ano}. "
+                    f"Abas disponíveis nesta planilha: {sorted(abas.keys())}"
+                )
                 continue
-                
+
             registros = abas[nome_aba]
             if not isinstance(registros, list):
                 continue

@@ -18,6 +18,7 @@
 - [Hipóteses de análise (a validar)](#hipoteses-de-analise-a-validar)
 - [Decisões de design aplicadas](#decisoes-de-design-aplicadas)
 - [Qualidade de dados e MDM](#qualidade-de-dados-e-mdm)
+- [Fontes bloqueadas — tracking](#fontes-bloqueadas--tracking)
 - [Governança e uso responsável de dados públicos](#governanca-e-uso-responsavel-de-dados-publicos)
 - [Estrutura do projeto](#estrutura-do-projeto)
 - [Acompanhando o progresso](#acompanhando-o-progresso)
@@ -41,9 +42,10 @@ Cada branch representa uma etapa isolada de construção. A ordem abaixo é cron
 | `feat/cloud-migration-s3` | ontem | 6 commits atrás | Migração de todos os caminhos locais de disco para AWS S3 via `DataLakeConnector` (boto3), cobrindo bronze, silver e gold. Validado com escrita/leitura real no bucket `comex-data-lake-magalhaes-vitor`. |
 | `feat/mdic-gold-integration` | ontem | 5 commits atrás | Extração e limpeza do Comex Stat (MDIC), com fluxos de exportação e importação separados, e primeira integração à camada Gold. |
 | `feat/conab-integration` | ontem | 3 commits atrás | Extração do boletim de safra da CONAB (grãos), cleaner com filtro geográfico por UF, e primeira versão do cruzamento agrícola (APS + CONAB) na Gold. |
-| `feat/antaq-integration` | 13h atrás | 3 atrás / 1 à frente | Extração da ANTAQ iniciada, mas **bloqueada**: o portal Qlik Sense da ANTAQ está fora do ar no momento. Branch com 1 commit ainda não integrado à `main`, aguardando disponibilidade do sistema de origem para retomar. |
+| `feat/antaq-integration` | 13h atrás | 3 atrás / 1 à frente | Extração da ANTAQ iniciada, mas **bloqueada por indisponibilidade da fonte** (não por falha de código). Branch com 1 commit ainda não integrado à `main`. Ver [Fontes bloqueadas — tracking](#fontes-bloqueadas--tracking) para status atualizado e critério de retomada. |
 | `feat/gold-integration-master` | 13h atrás | 2 commits atrás | Consolidação da camada Gold com todas as fontes disponíveis integradas (APS + Bacen + MDIC + CONAB), gerando as três tabelas fato definitivas e a DDL do Athena. |
-| `pipeline-quality-and-mdm` | agora (a partir de `feat/gold-integration-master`) | branch nova | Correções de qualidade de dados encontradas em auditoria com dados reais de produção: parâmetro `details` do extrator MDIC sem NCM (código de produto ausente na fonte), coluna `sentido` não populada no Gold por mismatch de nome com `tipo_operacao`, de-para semântico Mercadoria↔Cultura CONAB corrigido e com validação MDM ativa (alerta de chaves órfãs em ambas as direções), e correção semântica da alocação geográfica agrícola (share de produção doméstica não é aplicado a fluxos de Importação — fica `NaN` em vez de gerar um número sem sentido). Esta atualização de README sobe nesta branch. |
+| `pipeline-quality-and-mdm` | 3 dias atrás (a partir de `feat/gold-integration-master`) | branch nova | Correções de qualidade de dados encontradas em auditoria com dados reais de produção: parâmetro `details` do extrator MDIC sem NCM (código de produto ausente na fonte), coluna `sentido` não populada no Gold por mismatch de nome com `tipo_operacao`, de-para semântico Mercadoria↔Cultura CONAB corrigido e com validação MDM ativa (alerta de chaves órfãs em ambas as direções), correção semântica da alocação geográfica agrícola (share de produção doméstica não é aplicado a fluxos de Importação — fica `NaN` em vez de gerar um número sem sentido), e adição da seção de tracking formal para fontes de dados bloqueadas por terceiros (ver ANTAQ). |
+| `feat/historical-backfill` | agora (a partir de `pipeline-quality-and-mdm`) | branch nova | Desacoplamento temporal dos 4 extratores (APS, Bacen, MDIC, CONAB) — cada um passa a aceitar `ano`/`mes` explícitos no construtor, mantendo `DateRules.get_target_period()` como padrão quando nada é informado, sem alterar o comportamento do fluxo mensal já em produção. Novo `backfill_orchestrator.py` reaproveita Bronze→Silver→Gold já validados para rodar em lote mês a mês, com notificação Slack por lote e isolamento de falha por fonte. Novo `discover_backfill_start.py` sonda cada fonte para descobrir o piso histórico real de dado disponível. CONAB ganhou navegação em duas etapas (listagem paginada → subpágina do levantamento → "Tabela de dados") como fallback para meses cujo link direto de `.xlsx` não segue o padrão esperado, além de suporte a `.xls` legado. Camada Gold migrada para tabelas particionadas por `ano` no Athena, com *partition projection* (faixa 2019–2035) para não depender de `MSCK REPAIR TABLE` a cada novo lote de backfill. Esta atualização de README sobe nesta branch. |
 
 ---
 
@@ -75,7 +77,7 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 - [x] Silver: consolidação do armazenamento limpo no S3 (APS, Bacen, MDIC, CONAB)
 - [x] Reconciliação com Comex Stat (MDIC) — incluindo NCM por registro
 - [x] Contextualização sazonal com calendário CONAB, com de-para semântico Mercadoria↔Cultura validado (MDM)
-- [ ] Comparativo de market share via ANTAQ — **bloqueado**: sistema Qlik Sense da ANTAQ está fora do ar. Extração iniciada em `feat/antaq-integration`, retomada assim que o portal de origem voltar a responder.
+- [ ] Comparativo de market share via ANTAQ — **bloqueado por fonte externa indisponível, não por limitação técnica do pipeline**. Detalhamento completo, com datas de checagem, em [Fontes bloqueadas — tracking](#fontes-bloqueadas--tracking).
 - [x] Gold: cruzamento das fontes e modelo dimensional — três tabelas fato em produção (`fato_movimentacao_cambio`, `fato_balanca_mdic`, `fato_origem_agricola`)
 - [x] Consulta via Amazon Athena — DDL aplicada para as três tabelas fato
 
@@ -85,6 +87,14 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 - [ ] Provisionamento via AWS SAM dos recursos validados
 
 > Nota: o pipeline hoje já roda ponta a ponta (extração → limpeza → Gold → S3 → notificação Slack) via `orchestrator.py`, mas ainda de forma local/manual — a containerização e o agendamento serverless são o próximo salto de maturidade operacional, não um bloqueador para geração de dados.
+
+### Fase 6 — Backfill Histórico (Em andamento)
+- [x] Desacoplar os 4 extratores da regra `DateRules.get_target_period()`, permitindo instanciá-los com `ano`/`mes` arbitrários sem quebrar o fluxo mensal padrão
+- [x] `discover_backfill_start.py` — diagnóstico que sonda cada fonte (2015–2020) para encontrar o primeiro período com dado real e calcular o piso comum de backfill
+- [x] `backfill_orchestrator.py` — motor que roda Bronze→Silver→Gold em lote, mês a mês, com notificação de sucesso/falha por lote e tratamento de ausência de boletim da CONAB como caso esperado (não como falha)
+- [x] Fallback de navegação em duas etapas para a CONAB (listagem paginada → levantamento → "Tabela de dados"), cobrindo meses em que o link direto de `.xlsx` não segue o padrão de nome esperado, e suporte a planilhas `.xls` legadas
+- [x] Camada Gold reestruturada no Athena com tabelas particionadas por `ano` e *partition projection* (2019–2035), eliminando a necessidade de `MSCK REPAIR TABLE` a cada lote novo
+- [x] Execução real do backfill completo (2019 até o presente)
 
 ### Fase 7 — Entrega (Roadmap)
 - [ ] Dashboard Power BI
@@ -120,7 +130,7 @@ graph TD
         BACEN[Bacen - API<br>PTAX diária]:::source
         MDIC[MDIC - Comex Stat<br>Valor declarado, mensal]:::source
         CONAB[CONAB - Calendário<br>Safra agrícola]:::source
-        ANTAQ[ANTAQ - Painel estatístico<br>Arquivos batch anuais<br><i>fora do ar</i>]:::source
+        ANTAQ[ANTAQ - Painel estatístico<br>Arquivos batch anuais<br><i>fora do ar — ver tracking</i>]:::source
     end
 
     EB(("EventBridge<br>Trigger mensal")):::aws --> Fargate
@@ -181,7 +191,7 @@ graph TD
 | Banco Central (Bacen) | PTAX (câmbio) | Diária | API pública (SGS/OData) — não requer chave de autenticação | Em produção |
 | Comex Stat (MDIC) | Valor FOB (USD) e NCM declarados na alfândega, por fluxo (export/import) | Mensal | API REST (`api-comexstat.mdic.gov.br`) | Em produção |
 | CONAB | Produção agrícola por estado (safra de grãos) | Sazonal | Planilha `.xlsx` (boletim mensal) | Em produção — cobre apenas Soja, Milho, Trigo, Arroz e Feijão |
-| ANTAQ | Estatísticas de movimentação de todos os portos | Anual | Painel estatístico (Qlik Sense) com download de arquivos compactados — não é uma API REST simples | **Bloqueado**: portal fora do ar no momento da extração |
+| ANTAQ | Estatísticas de movimentação de todos os portos | Anual | Painel estatístico (Qlik Sense) com download de arquivos compactados — não é uma API REST simples | **Bloqueado por indisponibilidade da fonte** — ver [tracking](#fontes-bloqueadas--tracking) |
 
 ---
 
@@ -231,6 +241,24 @@ Estas são hipóteses que o pipeline vai testar quando houver dados suficientes 
 > **AWS SAM em vez de Terraform**
 > Terraform foi descartado para este escopo por complexidade de configuração desproporcional ao tamanho do projeto (solo, poucos recursos). SAM cobre o necessário com menos sobrecarga operacional.
 
+> **Ignorar fonte indisponível em vez de bloquear a entrega**
+> Quando uma fonte de terceiros fica indisponível (ver ANTAQ), a decisão de design é não bloquear o pipeline nem as demais fontes por causa dela. A branch de integração fica isolada (`feat/antaq-integration`), sem merge na `main`, e o restante do Gold segue sendo publicado normalmente. O acompanhamento da indisponibilidade é feito à parte, com data de verificação registrada, para não misturar "dado não disponível hoje" com "funcionalidade não implementada".
+
+> **Desacoplamento temporal em vez de duplicar extratores para o backfill**
+> Em vez de criar uma versão paralela de cada extrator para rodar em períodos passados, os 4 extratores (`ano`/`mes` no construtor) passaram a aceitar o período como parâmetro explícito, caindo para `DateRules.get_target_period()` apenas quando nada é informado. Isso significa que o mesmo código que roda o pipeline mensal em produção (`orchestrator.py`) é o que roda o backfill histórico (`backfill_orchestrator.py`) — qualquer correção feita num extrator vale automaticamente para os dois fluxos, sem risco de divergência entre "a versão que roda todo mês" e "a versão que roda uma vez para o histórico".
+
+> **Descoberta do piso histórico em vez de um valor de calendário arbitrário**
+> `BACKFILL_START` em `backfill_orchestrator.py` não foi escolhido por suposição — `discover_backfill_start.py` sonda cada fonte mês a mês (2015–2020) para achar o primeiro período em que ela responde com dado válido, e o início comum do backfill é o `max` entre esses pisos e um piso de segurança de negócio (`FLOOR_MINIMO`, hoje 2019-01). Isso evita tanto começar cedo demais (gerando lotes vazios/erros para fontes que ainda não existiam) quanto começar tarde demais por excesso de cautela.
+
+> **Ausência de boletim da CONAB não é falha de pipeline**
+> Diferente das outras três fontes, a CONAB nem sempre publica boletim para todo mês do intervalo de backfill. `backfill_orchestrator.py` trata a ausência de boletim da CONAB como comportamento esperado (loga e segue o lote), reservando o registro de falha real para quando a fonte responde mas o dado não pode ser processado — evita que o backfill pare ou dispare alertas de erro para um caso que não é, de fato, um erro.
+
+> **Navegação em duas etapas como fallback da CONAB, não como substituição**
+> O casamento direto por regex do nome do arquivo (`find_xlsx_url`) continua sendo a primeira tentativa por ser mais rápido; só quando ele falha o extrator cai para `find_xlsx_url_via_navegacao`, que percorre listagem paginada → subpágina do levantamento → link "Tabela de dados". Meses mais antigos têm maior chance de fugir do padrão de nome de arquivo usado atualmente pela CONAB, e esse fallback existe especificamente para não deixar o backfill perder meses só por causa de uma convenção de nomenclatura que mudou ao longo do tempo.
+
+> **Partition projection em vez de `MSCK REPAIR TABLE` manual**
+> Com o backfill introduzindo potencialmente dezenas de novas partições anuais na Gold, repetir `MSCK REPAIR TABLE` a cada lote seria um passo manual repetitivo e fácil de esquecer. As três tabelas fato foram reestruturadas para particionar por `ano` com *partition projection* do Athena, numa faixa fixa (2019–2035) — o Athena calcula as partições existentes em tempo de consulta, sem precisar de um passo de descoberta explícito a cada nova carga.
+
 ---
 
 ## Qualidade de dados e MDM
@@ -241,6 +269,33 @@ Esta seção documenta limitações conhecidas e mecanismos de validação ativo
 - **Alerta de MDM ativo:** toda execução do Gold Builder valida se as culturas referenciadas no de-para realmente existem na Silver da CONAB no período processado, e alerta em caso de divergência — protegendo contra o de-para e o cleaner da CONAB divergirem de nome ao longo do tempo sem que ninguém perceba.
 - **Modelo de alocação geográfica é uma estimativa, não um rastreamento real:** `volume_toneladas_estimado` assume que a proporção de produção nacional por estado reflete a proporção de origem do que passa por Santos — não captura gargalos logísticos reais (ex.: estados de fronteira agrícola distantes de Santos). Tratar como indicador direcional, não como dado de rastreabilidade logística.
 - **NCM disponível desde a integração com o Comex Stat:** o parâmetro `details` da API do MDIC precisa incluir explicitamente o detalhamento por produto — sem isso, os registros vêm agregados só por país, sem chave de produto utilizável.
+
+---
+
+## Fontes bloqueadas — tracking
+
+Esta seção existe para separar duas coisas que parecem iguais no roadmap mas não são: **funcionalidade não implementada** (responsabilidade do projeto) e **fonte de terceiros indisponível** (fora do controle do projeto). Cada item bloqueado por fonte externa é registrado aqui com data de descoberta, prazo declarado pela fonte (se houver) e data da última checagem — para que "bloqueado" nunca vire sinônimo de "esquecido".
+
+### ANTAQ — Painel Estatístico Aquaviário (Qlik Sense)
+
+| Campo | Valor |
+|---|---|
+| Status | 🔴 Indisponível |
+| Descoberto em | 08/07/2026 (durante `feat/antaq-integration`) |
+| Aviso oficial da fonte | Publicado em 23/06/2026, atualizado em 29/06/2026 |
+| Prazo declarado pela ANTAQ | "Até 10/07" (manutenção técnica) |
+| Última checagem | 13/07/2026 — painel segue indisponível, aviso não foi atualizado desde 29/06 |
+| Impacto no escopo | Bloqueia apenas o comparativo de market share entre portos (item da Fase 4). Não afeta nenhuma das três tabelas fato já em produção. |
+| Ação atual | Nenhuma retentativa automática; branch `feat/antaq-integration` permanece isolada da `main`. Retomada é decisão manual após confirmação de disponibilidade. |
+
+**Observação sobre o tipo de indisponibilidade:** há indício de que este não seja um caso de manutenção simples — fontes do setor portuário vêm noticiando uma **atualização de versão do Painel Estatístico Aquaviário** prevista para entrar em produção a partir de julho/2026 (nova navegação, filtros fixos, unidade adicional de TKU). Se for esse o caso, o retorno do sistema provavelmente virá acompanhado de uma nova estrutura de página/dashboard, e o extrator planejado para `feat/antaq-integration` pode precisar ser refeito (não apenas reativado) quando a fonte voltar.
+
+**Alternativas avaliadas para essa lacuna, caso a indisponibilidade se estenda:**
+- **Base dos Dados** (`basedosdados.org`) — hospeda o Anuário Estatístico da ANTAQ já tratado, consultável via SQL/Python/BigQuery, sem dependência de scraping de Qlik Sense. Granularidade anual, não mensal.
+- **Boletim Estatístico Aquaviário (PDF)**, publicado periodicamente pela própria ANTAQ em "Estudos e Pesquisas" — reaproveitaria a mesma competência de parsing de PDF já validada no `aps_extractor.py`.
+- **Plano de Dados Abertos (PDA) da ANTAQ** — a checar se há CSV/XLSX de download direto, sem depender do painel interativo.
+
+Nenhuma dessas alternativas foi integrada ainda. A decisão até o momento é não trocar de fonte no meio do projeto sem necessidade comprovada — o escopo core (reconciliação APS × MDIC × CONAB × Bacen) já é entregue de ponta a ponta sem o dado da ANTAQ, que era um enriquecimento (comparativo de market share), não uma dependência estrutural da camada Gold.
 
 ---
 
@@ -258,7 +313,9 @@ Todas as fontes usadas são públicas e institucionais (APS, Bacen, MDIC, CONAB,
 
 ```bash
 comex-data-product/
-├── orchestrator.py              # Executa o pipeline ponta a ponta (Bronze → Silver → Gold)
+├── orchestrator.py              # Executa o pipeline ponta a ponta (Bronze → Silver → Gold) para o mês vigente
+├── backfill_orchestrator.py     # Roda o pipeline em lote, mês a mês, para o histórico (2019 → presente)
+├── discover_backfill_start.py   # Diagnóstico: sonda cada fonte e calcula o piso histórico comum de backfill
 ├── src/
 │   ├── extractors/
 │   │   ├── aps_extractor.py
