@@ -1,0 +1,34 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Pipeline Serverless de Engenharia de Dados (Comex)
+  Extração, validação (Pydantic) e enriquecimento de dados de Comércio Exterior e Agronegócio.
+
+Resources:
+  ComexDataPipelineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: comex-data-pipeline
+      PackageType: Image
+      MemorySize: 2048
+      Timeout: 900
+      Policies:
+        - AmazonS3FullAccess
+      Environment:
+        Variables:
+          AWS_S3_BUCKET: "comex-data-lake-magalhaes-vitor"
+          # Nota: Em produção via SAM, senhas como Webhooks devem ser passadas via AWS Secrets Manager ou parameters,
+          # mas deixamos a chave aqui mapeada para manter a paridade com a configuração manual.
+          SLACK_WEBHOOK_URL: ""
+      Events:
+        MensalSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 12 15 * ? *)
+            Name: comex-pipeline-mensal
+            Description: Gatilho mensal para rodar o pipeline de dados do Comex todo dia 15.
+            Enabled: true
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: latest

@@ -12,7 +12,7 @@
 - [Guia de Branches](#guia-de-branches)
 - [Status do projeto](#status-do-projeto)
 - [Visão geral](#visao-geral)
-- [Arquitetura Alvo (Cloud)](#arquitetura-alvo-aws-cloud-native)
+- [Arquitetura (Cloud)](#arquitetura-aws-cloud-native)
 - [Fontes de dados](#fontes-de-dados)
 - [Modelagem da camada Gold](#modelagem-da-camada-gold)
 - [Hipóteses de análise (a validar)](#hipoteses-de-analise-a-validar)
@@ -28,7 +28,7 @@
 
 ## Guia de Branches
 
-Cada branch representa uma etapa isolada de construção. A ordem abaixo é cronológica (da mais antiga para a mais recente), com a data real de atualização e a distância em commits em relação à `main` no momento desta atualização (13/07/2026).
+Cada branch representa uma etapa isolada de construção. A ordem abaixo é cronológica (da mais antiga para a mais recente), com a data real de atualização e a distância em commits em relação à `main` no momento desta atualização (14/07/2026).
 
 | Branch | Atualizada | Distância de `main` | O que introduziu |
 |---|---|---|---|
@@ -47,6 +47,7 @@ Cada branch representa uma etapa isolada de construção. A ordem abaixo é cron
 | ~~`pipeline-quality-and-mdm`~~ | — | **mergeada na `main`** (branch removida) | Correções de qualidade de dados encontradas em auditoria com dados reais de produção: parâmetro `details` do extrator MDIC sem NCM (código de produto ausente na fonte), coluna `sentido` não populada no Gold por mismatch de nome com `tipo_operacao`, de-para semântico Mercadoria↔Cultura CONAB corrigido e com validação MDM ativa (alerta de chaves órfãs em ambas as direções), correção semântica da alocação geográfica agrícola (share de produção doméstica não é aplicado a fluxos de Importação — fica `NaN` em vez de gerar um número sem sentido), e adição da seção de tracking formal para fontes de dados bloqueadas por terceiros (ver ANTAQ). O merge para `main` foi feito diretamente, sem preservar a branch. |
 | `bkp-main-pre-fase3` | 13/07/2026 | 2 commits atrás | Snapshot de segurança da `main`, capturado logo após o merge da `pipeline-quality-and-mdm` e antes do início da Fase 3 (containerização). Preserva o estado da `main` já com as correções de qualidade de dados consolidadas, para permitir rollback rápido caso a infraestrutura como código introduza alguma regressão. Não recebe novos commits de propósito — é um ponto de restauração, não uma frente de trabalho ativa. |
 | `feat/historical-backfill` | 13/07/2026 | 2 atrás / 2 à frente | Desacoplamento temporal dos 4 extratores (APS, Bacen, MDIC, CONAB) — cada um passa a aceitar `ano`/`mes` explícitos no construtor, mantendo `DateRules.get_target_period()` como padrão quando nada é informado, sem alterar o comportamento do fluxo mensal já em produção. Novo `backfill_orchestrator.py` reaproveita Bronze→Silver→Gold já validados para rodar em lote mês a mês, com notificação Slack por lote e isolamento de falha por fonte. Novo `discover_backfill_start.py` sonda cada fonte para descobrir o piso histórico real de dado disponível. CONAB ganhou navegação em duas etapas (listagem paginada → subpágina do levantamento → "Tabela de dados") como fallback para meses cujo link direto de `.xlsx` não segue o padrão esperado, além de suporte a `.xls` legado. Camada Gold migrada para tabelas particionadas por `ano` no Athena, com *partition projection* (faixa 2019–2035) para não depender de `MSCK REPAIR TABLE` a cada novo lote de backfill. Esta atualização de README sobe nesta branch. |
+| `feat/aws-lambda-migration` | 14/07/2026 | 0 commits atrás — **mergeada na `main`** (branch preservada) | Migração do ambiente de execução para AWS Lambda: novo `lambda_function.py` como entrypoint, orquestrando os 4 extratores + 4 cleaners + o Gold Builder via subprocess, com notificação Slack em cada uma das 8 etapas e resolução dinâmica do `project_root` para funcionar tanto localmente quanto em `/var/task` no Lambda. Novo `Dockerfile` baseado em `public.ecr.aws/lambda/python:3.10`, com build das dependências nativas (pdfplumber, Pillow) via `gcc`/`rust`/`cargo` na imagem. Decisão de arquitetura: Lambda em vez do Fargate originalmente planejado — sem necessidade de cluster always-on para um job que roda poucos minutos por mês (ver [Decisões de design aplicadas](#decisoes-de-design-aplicadas)). Validado com execução real em produção (ver nota em Fase 6): pipeline completo do período MAI/2026 concluído em 69,4s, ambos os circuit breakers passando sem intervenção. |
 
 ---
 
@@ -97,6 +98,8 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 
 > Nota: o pipeline hoje já roda ponta a ponta (extração → limpeza → Gold → S3 → notificação Slack) via `orchestrator.py`, mas ainda de forma local/manual — a containerização e o agendamento serverless são o próximo salto de maturidade operacional, não um bloqueador para geração de dados.
 
+> **Validação em produção (14/07/2026):** execução real via AWS Lambda, monitorada por CloudWatch, referente ao período MAI/2026 (regra de defasagem de 2 meses, `DateRules`). Pipeline completo (4 extratores → 4 cleaners → Gold Builder) concluído com sucesso em **69,4s** (billed 69.998 ms), pico de memória de **616 MB** sobre os 2048 MB alocados — margem para right-sizing da função. Os dois circuit breakers passaram sem intervenção: 0% de rejeição de linhas em todas as fontes (APS: 30, Bacen: 20, MDIC: 117.451, CONAB: 135) e 1,71% de discrepância de cobertura de volume na APS (16.089.440 t extraídas vs 16.369.762 t declaradas), bem dentro do limite de 5%. O alerta de mercadorias fora do de-para agrícola (Açúcar, Álcool, Sucos Cítricos) disparou como esperado — ver [Qualidade de dados e MDM](#qualidade-de-dados-e-mdm). Notificações de sucesso enviadas ao Slack em todas as 8 etapas do pipeline.
+
 ### Fase 7 — Entrega (Em andamento)
 - [ ] Dashboard Power BI
 - [ ] Case study final e retrospectiva
@@ -113,9 +116,9 @@ Todos os dados usados são reais e públicos — nenhum dado é simulado ou inve
 
 ---
 
-## Arquitetura alvo (AWS Cloud-Native)
+## Arquitetura (AWS Cloud-Native)
 
-*Esta é a arquitetura planejada. O status de implementação de cada componente está na seção [Status do projeto](#status-do-projeto).*
+*Compute definido como AWS Lambda (container image) — decisão final, não mais um alvo futuro em Fargate. O status de implementação de cada componente está na seção [Status do projeto](#status-do-projeto).*
 
 ```mermaid
 graph TD
@@ -134,9 +137,9 @@ graph TD
         ANTAQ[ANTAQ - Painel estatístico<br>Arquivos batch anuais<br><i>fora do ar — ver tracking</i>]:::source
     end
 
-    EB(("EventBridge<br>Trigger mensal")):::aws --> Fargate
+    EB(("EventBridge<br>Trigger mensal")):::aws --> Lambda
 
-    subgraph Compute["AWS Fargate (container Python)"]
+    subgraph Compute["AWS Lambda (container image, Python)"]
         direction TB
         Orchestrator[Orchestrator<br>Tenacity + rate limiter]:::compute
         Extract[Extract module<br>requests + pdfplumber]:::compute
@@ -174,9 +177,9 @@ graph TD
     Transform -.->|Envia logs| CW
 ```
 
-**Stack planejada:**
-- Orquestração: Amazon EventBridge (gatilho mensal, ECS RunTask direto — sem Lambda)
-- Processamento: AWS Fargate, em subnet pública sem NAT Gateway
+**Stack:**
+- Orquestração: Amazon EventBridge (gatilho mensal) → AWS Lambda — **em produção**
+- Processamento: AWS Lambda (container image via ECR, `public.ecr.aws/lambda/python`), executando os 4 extratores + 4 cleaners + Gold Builder em sequência — **em produção**. Fargate foi avaliado como alternativa na fase de planejamento, mas Lambda venceu por menor sobrecarga operacional para a cadência mensal do pipeline (sem necessidade de cluster/serviço always-on para um job que roda poucos minutos por mês).
 - Data lake (S3 medallion): bronze, silver, gold — **em produção**
 - Consulta: Amazon Athena — **DDL aplicada**
 - Observabilidade: Amazon SNS + Slack — **Slack em produção**; SNS/CloudWatch ainda roadmap
@@ -239,6 +242,9 @@ Estas são hipóteses que o pipeline vai testar quando houver dados suficientes 
 > **Alocação geográfica não se aplica à Importação**
 > O `share_estado` é calculado a partir da produção doméstica (CONAB) e só é semanticamente válido para o fluxo de Exportação — ele representa "de qual estado brasileiro veio o produto que saiu por Santos". Aplicado à Importação, o resultado seria uma origem geográfica fisicamente impossível (produto importado não nasce em produção doméstica). Por isso, `volume_toneladas_estimado` fica `NaN` para registros de Importação, preservando o volume físico real (`volume_toneladas`) sem inventar uma origem que a fonte não sustenta.
 
+> **AWS Lambda em vez de Fargate**
+> O plano original de arquitetura previa AWS Fargate para o compute. Na migração para nuvem (`feat/aws-lambda-migration`), a decisão final foi AWS Lambda (container image): o pipeline roda uma vez por mês e leva menos de dois minutos ponta a ponta, o que não justifica manter um cluster/serviço always-on como o Fargate pede. Lambda cobre o mesmo requisito (execução em container Python, com as dependências nativas do `pdfplumber`/Pillow buildadas na imagem) com bem menos peça móvel operacional, e já está validado com execução real em produção (ver nota em Fase 6).
+
 > **AWS SAM em vez de Terraform**
 > Terraform foi descartado para este escopo por complexidade de configuração desproporcional ao tamanho do projeto (solo, poucos recursos). SAM cobre o necessário com menos sobrecarga operacional.
 
@@ -285,7 +291,7 @@ Esta seção existe para separar duas coisas que parecem iguais no roadmap mas n
 | Descoberto em | 08/07/2026 (durante `feat/antaq-integration`) |
 | Aviso oficial da fonte | Publicado em 23/06/2026, atualizado em 29/06/2026 |
 | Prazo declarado pela ANTAQ | "Até 10/07" (manutenção técnica) |
-| Última checagem | 13/07/2026 — painel segue indisponível, aviso não foi atualizado desde 29/06 |
+| Última checagem | 14/07/2026 — painel segue indisponível, aviso não foi atualizado desde 29/06 |
 | Impacto no escopo | Bloqueia apenas o comparativo de market share entre portos (item da Fase 4). Não afeta nenhuma das três tabelas fato já em produção. |
 | Ação atual | Nenhuma retentativa automática; branch `feat/antaq-integration` permanece isolada da `main`. Retomada é decisão manual após confirmação de disponibilidade. |
 
