@@ -22,11 +22,18 @@ class QuarantineManager:
         
         self.rejeitos = []
         
-        # Criação de uma zona irmã paralela a Bronze/Silver/Gold
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        self.quarantine_dir = os.path.join(project_root, "data", "quarantine", self.pipeline_name)
+        
+        # --- A VACINA CLOUD-NATIVE (DUPLAMENTE BLINDADA) ---
+        if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") or os.environ.get("LAMBDA_TASK_ROOT"):
+            base_dir = "/tmp/data"
+        else:
+            base_dir = os.path.join(project_root, "data")
+            
+        self.quarantine_dir = os.path.join(base_dir, "quarantine", self.pipeline_name, self.ano, self.mes)
         os.makedirs(self.quarantine_dir, exist_ok=True)
-
+        
+        
     def log_rejection(self, 
                       conteudo_bruto_linha: dict | list,
                       mensagem_erro_pydantic: str,

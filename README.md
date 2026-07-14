@@ -82,14 +82,7 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 - [x] Gold: cruzamento das fontes e modelo dimensional — três tabelas fato em produção (`fato_movimentacao_cambio`, `fato_balanca_mdic`, `fato_origem_agricola`)
 - [x] Consulta via Amazon Athena — DDL aplicada para as três tabelas fato
 
-### Fase 5 — Infraestrutura como código (Em andamento)
-- [ ] Containerizar os pipelines com Docker
-- [ ] Deploy serverless no AWS ECS / Fargate (com gatilho EventBridge)
-- [ ] Provisionamento via AWS SAM dos recursos validados
-
-> Nota: o pipeline hoje já roda ponta a ponta (extração → limpeza → Gold → S3 → notificação Slack) via `orchestrator.py`, mas ainda de forma local/manual — a containerização e o agendamento serverless são o próximo salto de maturidade operacional, não um bloqueador para geração de dados.
-
-### Fase 6 — Backfill Histórico (Concluída)
+### Fase 5 — Backfill Histórico (Concluída)
 - [x] Desacoplar os 4 extratores da regra `DateRules.get_target_period()`, permitindo instanciá-los com `ano`/`mes` arbitrários sem quebrar o fluxo mensal padrão
 - [x] `discover_backfill_start.py` — diagnóstico que sonda cada fonte (2015–2020) para encontrar o primeiro período com dado real e calcular o piso comum de backfill
 - [x] `backfill_orchestrator.py` — motor que roda Bronze→Silver→Gold em lote, mês a mês, com notificação de sucesso/falha por lote e tratamento de ausência de boletim da CONAB como caso esperado (não como falha)
@@ -97,7 +90,14 @@ Datas são por número de semana do projeto, não calendário — evita prometer
 - [x] Camada Gold reestruturada no Athena com tabelas particionadas por `ano` e *partition projection* (2019–2035), eliminando a necessidade de `MSCK REPAIR TABLE` a cada lote novo
 - [x] Execução real do backfill completo (2019 até o presente)
 
-### Fase 7 — Entrega (Roadmap)
+### Fase 6 — Infraestrutura como código (Concluída)
+- [x] Containerizar os pipelines com Docker
+- [x] Deploy serverless no AWS Lambda (com gatilho EventBridge)
+- [x] Provisionamento via AWS SAM dos recursos validados
+
+> Nota: o pipeline hoje já roda ponta a ponta (extração → limpeza → Gold → S3 → notificação Slack) via `orchestrator.py`, mas ainda de forma local/manual — a containerização e o agendamento serverless são o próximo salto de maturidade operacional, não um bloqueador para geração de dados.
+
+### Fase 7 — Entrega (Em andamento)
 - [ ] Dashboard Power BI
 - [ ] Case study final e retrospectiva
 

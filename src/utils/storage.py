@@ -39,12 +39,21 @@ class DataLakeConnector:
         return match.group(1) if match else None
 
     def _resolve_local_path(self, layer: str, service: str, filename: str, partition_by_year: bool = False) -> str:
-        """Garante a estrutura padronizada de diretórios do Data Lake local."""
-        directory = os.path.join(self.project_root, "data", layer, service)
+        """Garante a estrutura padronizada de diretórios do Data Lake local ou no /tmp do Lambda."""
+        
+        # Detecta se estamos rodando dentro do ambiente do AWS Lambda
+        if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+            base_dir = "/tmp/data"
+        else:
+            base_dir = os.path.join(self.project_root, "data")
+            
+        directory = os.path.join(base_dir, layer, service)
+        
         if partition_by_year:
             ano = self._extract_year(filename)
             if ano:
                 directory = os.path.join(directory, ano)
+                
         os.makedirs(directory, exist_ok=True)
         return os.path.join(directory, filename)
 

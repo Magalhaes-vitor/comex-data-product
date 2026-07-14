@@ -25,8 +25,6 @@ class APSCleaner:
         self.ano = str(ano)
         self.mes = str(mes)
         self.bronze_path = connector.obtain_file_path("bronze", "aps", self.file_name)
-        self.silver_dir = os.path.join(project_root, "data", "silver", "aps")
-        os.makedirs(self.silver_dir, exist_ok=True)
 
     def extract_and_clean(self):
         logger.info(f"Iniciando parsing e validação do PDF: {self.bronze_path}")

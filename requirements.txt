@@ -1,19 +1,26 @@
 # --- Web Scraping & APIs ---
-requests>=2.31.0
-beautifulsoup4>=4.12.0
+requests==2.31.0
+beautifulsoup4==4.12.2
 
-# --- Processamento de PDF ---
-pdfplumber>=0.11.0
+# --- Processamento de PDF e Excel ---
+pdfplumber==0.11.0
+openpyxl==3.1.2
+Pillow==10.2.0
 
 # --- Manipulação de Dados ---
-pandas>=2.1.0
+pandas==2.1.4
+numpy==1.26.4
 
 # --- Governança e Validação (Data Contracts) ---
-pydantic>=2.5.0
-pyarrow>=14.0.0
+pydantic==2.5.3
+pyarrow==14.0.1
 
-# --- Testes e Qualidade ---
-pytest>=7.4.0
+# --- Infraestrutura e Nuvem ---
+boto3==1.34.0
+python-dotenv==1.0.0
 
 # --- Resiliência e Observabilidade ---
-tenacity>=8.2.0
+tenacity==8.2.3
+
+# --- Testes e Qualidade ---
+pytest==7.4.3
