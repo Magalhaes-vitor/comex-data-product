@@ -1,0 +1,167 @@
+-- ============================================================================
+-- Comex Data Product — Medidas DAX
+-- ============================================================================
+-- Como usar: no Power BI Desktop, na tabela correspondente indicada em cada
+-- bloco, clique em "Nova medida" e cole o código (sem o comentário do nome).
+-- Pré-requisito: a Dim_Calendario já relacionada por [Data] com cada fato
+-- (ver checklist.md, passo 5).
+-- ============================================================================
+
+
+-- ============================================================================
+-- PÁGINA: Visão geral  (tabela base: vw_mdic_resumo_mensal)
+-- ============================================================================
+
+Exportação USD =
+CALCULATE(
+    SUM(vw_mdic_resumo_mensal[valor_fob_usd]),
+    vw_mdic_resumo_mensal[fluxo] = "export"
+)
+
+Importação USD =
+CALCULATE(
+    SUM(vw_mdic_resumo_mensal[valor_fob_usd]),
+    vw_mdic_resumo_mensal[fluxo] = "import"
+)
+
+Saldo Comercial USD = [Exportação USD] - [Importação USD]
+
+Exportação BRL =
+CALCULATE(
+    SUM(vw_mdic_resumo_mensal[valor_fob_brl]),
+    vw_mdic_resumo_mensal[fluxo] = "export"
+)
+
+Importação BRL =
+CALCULATE(
+    SUM(vw_mdic_resumo_mensal[valor_fob_brl]),
+    vw_mdic_resumo_mensal[fluxo] = "import"
+)
+
+Saldo Comercial BRL = [Exportação BRL] - [Importação BRL]
+
+Saldo Comercial YoY % =
+VAR Atual = [Saldo Comercial USD]
+VAR Anterior =
+    CALCULATE([Saldo Comercial USD], SAMEPERIODLASTYEAR(Dim_Calendario[Data]))
+RETURN
+    DIVIDE(Atual - Anterior, ABS(Anterior))
+
+Saldo Comercial MoM % =
+VAR Atual = [Saldo Comercial USD]
+VAR Anterior = CALCULATE([Saldo Comercial USD], DATEADD(Dim_Calendario[Data], -1, MONTH))
+RETURN
+    DIVIDE(Atual - Anterior, ABS(Anterior))
+
+-- PTAX repete o mesmo valor em várias linhas dentro do mesmo mês (export e
+-- import). SUMMARIZE evita contar esse valor em dobro.
+PTAX Médio do Período =
+AVERAGEX(
+    SUMMARIZE(
+        vw_mdic_resumo_mensal,
+        vw_mdic_resumo_mensal[ano],
+        vw_mdic_resumo_mensal[mes],
+        "PTAX_Mes", AVERAGE(vw_mdic_resumo_mensal[ptax_media_venda])
+    ),
+    [PTAX_Mes]
+)
+
+
+-- ============================================================================
+-- PÁGINA: Comércio exterior  (tabelas base: vw_mdic_top_paises, vw_mdic_top_capitulo)
+-- ============================================================================
+
+Valor FOB País (USD) = SUM(vw_mdic_top_paises[valor_fob_usd])
+
+-- Use o método Top N nativo do Power BI no painel de filtros para evitar 
+-- falsos empates caso a coluna do banco de dados venha como texto.
+Participação do País % =
+DIVIDE(
+    [Valor FOB País (USD)],
+    CALCULATE([Valor FOB País (USD)], ALL(vw_mdic_top_paises[pais]))
+)
+
+Valor FOB Capítulo NCM (USD) = SUM(vw_mdic_top_capitulo[valor_fob_usd])
+
+Peso Capítulo NCM (kg) = SUM(vw_mdic_top_capitulo[peso_kg])
+
+
+-- ============================================================================
+-- PÁGINA: Porto de Santos  (tabela base: fato_movimentacao_cambio)
+-- ============================================================================
+
+Volume Santos (ton) = SUM(fato_movimentacao_cambio[volume_toneladas])
+
+Volume Santos Exportação (ton) =
+CALCULATE(
+    [Volume Santos (ton)],
+    fato_movimentacao_cambio[sentido] = "Exportação"
+)
+
+Volume Santos Importação (ton) =
+CALCULATE(
+    [Volume Santos (ton)],
+    fato_movimentacao_cambio[sentido] = "Importação"
+)
+
+Variação MoM Volume % =
+VAR VolumeAtual = [Volume Santos (ton)]
+VAR VolumeAnterior =
+    CALCULATE([Volume Santos (ton)], DATEADD(Dim_Calendario[Data], -1, MONTH))
+RETURN
+    DIVIDE(VolumeAtual - VolumeAnterior, VolumeAnterior)
+
+-- Medidas para a Tabela de Maiores Impactos (Top 10 Variações MoM)
+Volume Anterior (ton) = 
+CALCULATE(
+    [Volume Santos (ton)], 
+    DATEADD(Dim_Calendario[Data], -1, MONTH)
+)
+
+Período Referência = 
+VAR DataAtual = MAX(Dim_Calendario[Data])
+VAR DataAnterior = EDATE(DataAtual, -1)
+VAR TextoAnterior = FORMAT(DataAnterior, "mmm/yy")
+VAR TextoAtual = FORMAT(DataAtual, "mmm/yy")
+RETURN
+    PROPER(TextoAnterior) & " → " & PROPER(TextoAtual)
+
+Rank Variação = 
+IF(
+    NOT ISBLANK([Volume Santos (ton)]),
+    RANKX(
+        ALLSELECTED(fato_movimentacao_cambio[mercadoria]),
+        ABS([Variação MoM Volume %]),
+        ,
+        DESC,
+        Dense
+    )
+)
+
+
+-- ============================================================================
+-- PÁGINA: Origem agrícola  (tabela base: vw_origem_agricola_export)
+-- ============================================================================
+-- Lembrete a manter visível na própria página (texto fixo, não medida):
+-- "Modelo estático de alocação por participação produtiva (CONAB) — não
+-- reflete gargalos logísticos reais por estado."
+
+Volume Estimado por Estado (ton) = SUM(vw_origem_agricola_export[volume_toneladas_estimado])
+
+-- Modificado para usar REMOVEFILTERS e garantir o cálculo correto com a coluna de mercadoria
+Participação do Estado % = 
+VAR VolumeEstado = SUM(vw_origem_agricola_export[volume_toneladas_estimado])
+VAR VolumeTotalBrasil = 
+    CALCULATE(
+        SUM(vw_origem_agricola_export[volume_toneladas_estimado]),
+        REMOVEFILTERS(vw_origem_agricola_export[estado])
+    )
+RETURN 
+    DIVIDE(VolumeEstado, VolumeTotalBrasil, 0)
+
+-- Medida para estruturar o Tile Grid Map (Mapa de Ladrilhos) nos Cartões
+Rotulo_Card_Estado = 
+VAR pct = [Participação do Estado %] + 0 
+VAR uf = MAX(vw_origem_agricola_export[estado]) 
+RETURN 
+    uf & UNICHAR(10) & FORMAT(pct, "0%")
