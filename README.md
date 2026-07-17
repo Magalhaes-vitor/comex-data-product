@@ -255,11 +255,7 @@ comex-data-product/
 └── requirements.txt
 ```
 
-**Mudanças em relação ao estado atual do repositório**, a aplicar na próxima atualização:
-1. Criar `scripts/` e mover `backfill_orchestrator.py` + `discover_backfill_start.py` pra lá (hoje só existem na branch `feat/historical-backfill`).
-2. Substituir e renomear o PDF antigo em `docs/` — ver aviso na seção [Documentação](#documentação).
-3. Remover o `__init__.py` solto na raiz do repositório (não pertence a nenhum pacote Python e não é referenciado por nenhum import).
-4. `data/` continua fora do controle de versão (`.gitignore` já cobre `data/`, `__pycache__/`, `*.pyc`, `.env`, `.venv/` — nenhuma mudança necessária aqui).
+Reorganização aplicada: `scripts/` isolando os artefatos de backfill histórico da execução recorrente, PDF final substituído e renomeado em `docs/`, e o `__init__.py` órfão removido da raiz. `data/` permanece fora do controle de versão (`.gitignore`).
 
 ---
 
